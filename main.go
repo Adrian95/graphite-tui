@@ -56,15 +56,16 @@ type model struct {
 	height int
 
 	// Dashboard state
-	branch       string
-	stack        []string
-	ahead        int
-	behind       int
-	changedFiles []ChangedFile
-	lastRefresh  time.Time
-	suggestion   string
-	hasStack     bool
-	onMain       bool
+	branch        string
+	stack         []string
+	ahead         int
+	behind        int
+	changedFiles  []ChangedFile
+	lastRefresh   time.Time
+	suggestion    string
+	hasStack      bool
+	onMain        bool
+	gtInitialized bool
 
 	// Menu state
 	items  []menuItem
@@ -204,6 +205,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasStack = msg.hasStack
 		m.onMain = msg.onMain
 		m.suggestion = msg.suggestion
+		m.gtInitialized = msg.gtInitialized
 		m.lastRefresh = time.Now()
 
 		// Check if we should show startup prompt
@@ -302,6 +304,10 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "q", "esc":
 		return m, tea.Quit
+
+	case "i": // Init Graphite
+		m.state = viewRunning
+		return m, executeInteractive("gt init --no-interactive", "", m.skipHooks)
 
 	case "s": // Start
 		m.state = viewWizardType
@@ -580,7 +586,7 @@ func (m model) View() string {
 		filesPanel := renderChangedFiles(m.changedFiles)
 
 		// Shortcuts bar
-		shortcuts := renderShortcutsBar(m.skipHooks)
+		shortcuts := renderShortcutsBarWithInit(m.skipHooks, m.gtInitialized)
 
 		// Co-pilot / guide
 		guide := ""

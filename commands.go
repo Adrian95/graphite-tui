@@ -19,14 +19,15 @@ type cmdFinishedMsg struct {
 }
 
 type statusMsg struct {
-	suggestion   string
-	branch       string
-	ahead        int
-	behind       int
-	stack        []string
-	changedFiles []ChangedFile
-	hasStack     bool
-	onMain       bool
+	suggestion    string
+	branch        string
+	ahead         int
+	behind        int
+	stack         []string
+	changedFiles  []ChangedFile
+	hasStack      bool
+	onMain        bool
+	gtInitialized bool
 }
 
 type stackLoadedMsg []stackItem
@@ -154,6 +155,11 @@ func executeCheckout(branch string) tea.Cmd {
 func checkGitStatus() tea.Msg {
 	status := statusMsg{}
 
+	// Check if Graphite is initialized (look for .graphite_repo_config in .git)
+	if _, err := os.Stat(".git/.graphite_repo_config"); err == nil {
+		status.gtInitialized = true
+	}
+
 	// Get current branch
 	if out, err := exec.Command("git", "branch", "--show-current").Output(); err == nil {
 		status.branch = strings.TrimSpace(string(out))
@@ -223,7 +229,9 @@ func checkGitStatus() tea.Msg {
 	}
 
 	// Generate suggestion
-	if len(status.changedFiles) > 0 {
+	if !status.gtInitialized {
+		status.suggestion = "suggestion: Graphite not initialized. Press [i] to set up Graphite in this repo."
+	} else if len(status.changedFiles) > 0 {
 		status.suggestion = "suggestion: You have uncommitted changes. Press [s] to commit or [f] to amend."
 	} else if status.ahead > 0 {
 		status.suggestion = "suggestion: Your branch is ahead. Press [p] to push and open a PR."
@@ -278,6 +286,13 @@ type menuItem struct {
 
 func getMenuItems() []menuItem {
 	return []menuItem{
+		{
+			title:   "Init",
+			desc:    "Initialize Graphite",
+			guide:   "Sets up Graphite in this repo. Required before using other commands. Only needed once per repo.",
+			command: "gt init --no-interactive",
+			key:     "i",
+		},
 		{
 			title:   "Start",
 			desc:    "Create branch & commit",

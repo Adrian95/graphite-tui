@@ -223,10 +223,15 @@ func renderChangedFiles(files []ChangedFile) string {
 }
 
 func renderShortcutsBar(skipHooks bool) string {
+	return renderShortcutsBarWithInit(skipHooks, true)
+}
+
+func renderShortcutsBarWithInit(skipHooks bool, gtInitialized bool) string {
 	shortcuts := []struct {
 		key   string
 		label string
 	}{
+		{"i", "Init"},
 		{"s", "Start"},
 		{"p", "Preview"},
 		{"f", "Fix"},
@@ -236,6 +241,11 @@ func renderShortcutsBar(skipHooks bool) string {
 		{"m", "Menu"},
 		{"?", "Help"},
 		{"q", "Quit"},
+	}
+
+	// If already initialized, skip showing Init
+	if gtInitialized {
+		shortcuts = shortcuts[1:]
 	}
 
 	var parts []string

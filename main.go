@@ -188,45 +188,47 @@ func initialModel() model {
 
 	return model{
 		state: viewMenu,
-		version: "v1.2.1",
+		version: "v1.3.0",
 		items: []menuItem{
 			{
 				title: "Start", 
 				desc: "Create branch & commit (Wizard)", 
 				guide: "Starts a new task. We'll guide you through creating a perfect commit message.",
-				command: "git add -A && gt c -m", 
-				isComplex: true, // Switched to complex for Wizard
+				// Use full graphite command with auto-stage and no-interactive
+				command: "gt create -a --no-interactive -m", 
+				isComplex: true, 
 			},
 			{
 				title: "Preview", 
 				desc: "Push & Open PR", 
 				guide: "Uploads your changes to GitHub and opens a Pull Request for review.",
-				command: "gt s",
+				command: "gt submit --no-interactive",
 			},
 			{
 				title: "Fix", 
 				desc: "Amend changes", 
 				guide: "Made a mistake? This updates the current commit without creating a new one.",
-				command: "gt m -a --no-edit",
+				// Use modify with no-edit (passed to git) and no-interactive (for gt)
+				command: "gt modify -a --no-interactive --no-edit",
 			},
 			{
 				title: "Sync", 
 				desc: "Update local stack", 
 				guide: "Pulls latest changes. Run this often to stay up to date!",
-				command: "gt sync",
+				command: "gt sync --no-interactive",
 			},
 			{
 				title: "Done", 
 				desc: "Merge & Cleanup", 
 				guide: "Merges the current stack and deletes local branches.",
-				command: "gt merge && gt sync", 
+				command: "gt merge --no-interactive && gt sync --no-interactive", 
 				isComplex: true,
 			},
 			{
 				title: "Fold", 
 				desc: "Squash stack", 
 				guide: "Combines multiple commits/branches into one.",
-				command: "gt fold",
+				command: "gt fold --no-interactive",
 			},
 			{
 				title: "Ghost Fix", 
@@ -240,7 +242,7 @@ func initialModel() model {
 				title: "Stack Map", 
 				desc: "Visual Dashboard", 
 				guide: "See your branch stack visually and jump between branches.",
-				command: "gt ls", // We'll hijack this
+				command: "gt log short", // Explicitly use log short
 				isComplex: true,
 			},
 			{
@@ -302,11 +304,10 @@ func checkGitStatus() tea.Msg {
 
 func loadStack() tea.Cmd {
 	return func() tea.Msg {
-		// Mockable command execution for gt ls
-		cmd := exec.Command("gt", "ls")
+		// Use full command
+		cmd := exec.Command("gt", "log", "short")
 		out, err := cmd.Output()
 		if err != nil {
-			// fallback if gt not installed or fails
 			return stackLoadedMsg{} 
 		}
 		
@@ -317,21 +318,18 @@ func loadStack() tea.Cmd {
 				continue
 			}
 			
-			// Simple parser
-			// * branch-name
-			//   branch-name
+			// Simple parser for gt log short output
 			current := strings.Contains(line, "*")
 			cleanName := strings.TrimSpace(line)
 			cleanName = strings.TrimPrefix(cleanName, "* ")
 			
-			// Try to guess level by indentation? gt ls usually uses tree chars
-			// For now, flat list is better than nothing, but let's try to detect indent
+			// Indentation check
 			indent := len(line) - len(strings.TrimLeft(line, " "))
 			
 			items = append(items, stackItem{
 				name:    cleanName,
 				current: current,
-				level:   indent / 2, // approximation
+				level:   indent / 2, 
 			})
 		}
 		return stackLoadedMsg(items)
@@ -341,27 +339,22 @@ func loadStack() tea.Cmd {
 func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd {
 	fullCmd := commandStr
 	if skipHooks {
-		if strings.Contains(commandStr, "gt c") || strings.Contains(commandStr, "gt m") {
+		// Pass --no-verify to gt commands (it passes it down to git)
+		if strings.Contains(commandStr, "gt ") {
 			fullCmd += " --no-verify"
 		}
 	}
 
 	// Safety: If inputArg is present, pass it safely as $1 to sh -c
 	if inputArg != "" {
-		// Construct the command to use $1
-		// Example: "git add -A && gt c -m" becomes "git add -A && gt c -m \"$1\""
-		// We assume the commandStr expects the argument at the end or we append it.
-		// For "Start" (git add -A && gt c -m), we want: git add -A && gt c -m "$1"
-		// For "Fix" (gt m -a), we might not have inputArg usually, but if we did...
-		
 		// Heuristic: If command ends with -m, append "$1". Otherwise append " $1".
 		separator := " "
 		if strings.HasSuffix(strings.TrimSpace(fullCmd), "-m") {
-			separator = " " // gt c -m "$1"
+			separator = " " 
 		}
 		
 		script := fmt.Sprintf("%s%s\"$1\"", fullCmd, separator)
-		// Now run sh -c script -- inputArg
+		// Run with argument
 		c := exec.Command("sh", "-c", script, "--", inputArg)
 		return tea.ExecProcess(c, func(err error) tea.Msg {
 			return cmdFinishedMsg{err: err, command: commandStr}
@@ -380,7 +373,8 @@ func executeCheckout(branch string) tea.Cmd {
 }
 
 func executeGhostFix(branchName string) tea.Cmd {
-	script := fmt.Sprintf(`git add -A && gt c -m "%s" && gt rebase main && gt sync`, branchName)
+	// Full command sequence for Ghost Fix
+	script := fmt.Sprintf(`gt create -a --no-interactive -m "%s" && gt rebase main --no-interactive && gt sync --no-interactive`, branchName)
 	c := exec.Command("sh", "-c", script)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return cmdFinishedMsg{err: err, command: "GHOST FIX"}
@@ -513,7 +507,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msgStr += fmt.Sprintf(": %s", m.wizardSummary)
 
 				m.state = viewRunning
-				return m, executeCommand("git add -A && gt c -m", msgStr, m.skipHooks)
+				// Use the new explicit command structure
+				// NOTE: We hardcode the base command here to match the new "Start" definition
+				return m, executeCommand("gt create -a --no-interactive -m", msgStr, m.skipHooks)
 			}
 			m.textInput, cmd = m.textInput.Update(msg)
 			return m, cmd

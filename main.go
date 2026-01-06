@@ -339,22 +339,21 @@ func loadStack() tea.Cmd {
 }
 
 func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd {
-	return func() tea.Msg {
-		fullCmd := commandStr
-		if skipHooks {
-			if strings.Contains(commandStr, "gt c") || strings.Contains(commandStr, "gt m") {
-				fullCmd += " --no-verify"
-			}
+	fullCmd := commandStr
+	if skipHooks {
+		if strings.Contains(commandStr, "gt c") || strings.Contains(commandStr, "gt m") {
+			fullCmd += " --no-verify"
 		}
-
-		if inputArg != "" {
-			fullCmd = fmt.Sprintf(`%s "%s"`, fullCmd, inputArg)
-		}
-		
-		cmd := exec.Command("sh", "-c", fullCmd)
-		out, err := cmd.CombinedOutput()
-		return cmdFinishedMsg{output: string(out), err: err, command: commandStr}
 	}
+
+	if inputArg != "" {
+		fullCmd = fmt.Sprintf(`%s "%s"`, fullCmd, inputArg)
+	}
+	
+	c := exec.Command("sh", "-c", fullCmd)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return cmdFinishedMsg{err: err, command: commandStr}
+	})
 }
 
 func executeCheckout(branch string) tea.Cmd {
@@ -362,12 +361,11 @@ func executeCheckout(branch string) tea.Cmd {
 }
 
 func executeGhostFix(branchName string) tea.Cmd {
-	return func() tea.Msg {
-		script := fmt.Sprintf(`gt c -am "%s" && gt rebase main && gt sync`, branchName)
-		cmd := exec.Command("sh", "-c", script)
-		out, err := cmd.CombinedOutput()
-		return cmdFinishedMsg{output: string(out), err: err, command: "GHOST FIX"}
-	}
+	script := fmt.Sprintf(`gt c -am "%s" && gt rebase main && gt sync`, branchName)
+	c := exec.Command("sh", "-c", script)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		return cmdFinishedMsg{err: err, command: "GHOST FIX"}
+	})
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {

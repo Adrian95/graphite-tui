@@ -25,3 +25,4 @@ go.work
 venv/
 __pycache__/
 *.pyc
+.dev/

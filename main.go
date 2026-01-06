@@ -113,6 +113,10 @@ const (
 	viewInput
 	viewRunning
 	viewOutput
+	viewWizardType
+	viewWizardScope
+	viewWizardSummary
+	viewStack
 )
 
 type menuItem struct {
@@ -123,6 +127,17 @@ type menuItem struct {
 	needsInput  bool
 	isComplex   bool
 	confirm     bool
+}
+
+type commitType struct {
+	label string
+	desc  string
+}
+
+type stackItem struct {
+	name    string
+	current bool
+	level   int // for indentation
 }
 
 type model struct {
@@ -140,6 +155,17 @@ type model struct {
 	// Options
 	skipHooks bool
 	version   string
+	suggestion string
+
+	// Wizard Data
+	commitTypes    []commitType
+	wizardTypeIdx  int
+	wizardScope    string
+	wizardSummary  string
+	
+	// Stack Data
+	stackItems []stackItem
+	stackCursor int
 }
 
 func initialModel() model {
@@ -162,14 +188,14 @@ func initialModel() model {
 
 	return model{
 		state: viewMenu,
-		version: "v1.1.0",
+		version: "v1.2.0",
 		items: []menuItem{
 			{
 				title: "Start", 
-				desc: "Create branch & commit", 
-				guide: "Use this when you start a new task. It creates a new branch and commits your initial work.",
+				desc: "Create branch & commit (Wizard)", 
+				guide: "Starts a new task. We'll guide you through creating a perfect commit message.",
 				command: "gt c -am", 
-				needsInput: true,
+				isComplex: true, // Switched to complex for Wizard
 			},
 			{
 				title: "Preview", 
@@ -180,41 +206,42 @@ func initialModel() model {
 			{
 				title: "Fix", 
 				desc: "Amend changes", 
-				guide: "Made a mistake or received feedback? This updates the current commit without creating a new one.",
+				guide: "Made a mistake? This updates the current commit without creating a new one.",
 				command: "gt m -a",
 			},
 			{
 				title: "Sync", 
 				desc: "Update local stack", 
-				guide: "Pulls the latest changes from main and updates your branch stack. Run this often!",
+				guide: "Pulls latest changes. Run this often to stay up to date!",
 				command: "gt sync",
 			},
 			{
 				title: "Done", 
 				desc: "Merge & Cleanup", 
-				guide: "Merges the current stack and deletes local branches. Use only when your PR is approved and merged.",
+				guide: "Merges the current stack and deletes local branches.",
 				command: "gt merge && gt sync", 
 				isComplex: true,
 			},
 			{
 				title: "Fold", 
 				desc: "Squash stack", 
-				guide: "Combines multiple commits/branches into one. Useful if you accidentally branched off a branch.",
+				guide: "Combines multiple commits/branches into one.",
 				command: "gt fold",
 			},
 			{
 				title: "Ghost Fix", 
 				desc: "Rescue ghost branch", 
-				guide: "Fixes the 'working on a merged branch' issue. Moves your work to a new clean branch.",
+				guide: "Fixes the 'working on a merged branch' issue.",
 				command: "", 
 				isComplex: true, 
 				needsInput: true,
 			},
 			{
-				title: "Status", 
-				desc: "View stack", 
-				guide: "Shows where you are in the dependency stack. Think of it as a map of your work.",
-				command: "gt ls",
+				title: "Stack Map", 
+				desc: "Visual Dashboard", 
+				guide: "See your branch stack visually and jump between branches.",
+				command: "gt ls", // We'll hijack this
+				isComplex: true,
 			},
 			{
 				title: "Update Tool",
@@ -223,15 +250,25 @@ func initialModel() model {
 				command: "go install github.com/Adrian95/graphite-tui@latest",
 			},
 		},
+		commitTypes: []commitType{
+			{"feat", "A new feature"},
+			{"fix", "A bug fix"},
+			{"docs", "Documentation only changes"},
+			{"style", "Changes that do not affect the meaning of the code"},
+			{"refactor", "A code change that neither fixes a bug nor adds a feature"},
+			{"perf", "A code change that improves performance"},
+			{"test", "Adding missing tests or correcting existing tests"},
+			{"chore", "Changes to the build process or auxiliary tools"},
+		},
 		textInput: ti,
 		spinner:   s,
 		viewport:  vp,
-		skipHooks: false, // Default to running hooks
+		skipHooks: false, 
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, spinner.Tick)
+	return tea.Batch(textinput.Blink, spinner.Tick, checkGitStatus)
 }
 
 // --- Logic ---
@@ -242,31 +279,86 @@ type cmdFinishedMsg struct {
 	command string
 }
 
+type statusMsg string
+type stackLoadedMsg []stackItem
+
+func checkGitStatus() tea.Msg {
+	// Check for uncommitted changes
+	cmd := exec.Command("git", "status", "--porcelain")
+	out, err := cmd.Output()
+	if err == nil && len(out) > 0 {
+		return statusMsg("suggestion: You have uncommitted changes. Try 'Start' (new) or 'Fix' (amend).")
+	}
+	
+	// Check if ahead of remote (simple check)
+	cmd = exec.Command("git", "status", "-sb")
+	out, err = cmd.Output()
+	if err == nil && strings.Contains(string(out), "ahead") {
+		return statusMsg("suggestion: Your branch is ahead. Try 'Preview' to push.")
+	}
+	
+	return statusMsg("")
+}
+
+func loadStack() tea.Cmd {
+	return func() tea.Msg {
+		// Mockable command execution for gt ls
+		cmd := exec.Command("gt", "ls")
+		out, err := cmd.Output()
+		if err != nil {
+			// fallback if gt not installed or fails
+			return stackLoadedMsg{} 
+		}
+		
+		var items []stackItem
+		lines := strings.Split(string(out), "\n")
+		for _, line := range lines {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			
+			// Simple parser
+			// * branch-name
+			//   branch-name
+			current := strings.Contains(line, "*")
+			cleanName := strings.TrimSpace(line)
+			cleanName = strings.TrimPrefix(cleanName, "* ")
+			
+			// Try to guess level by indentation? gt ls usually uses tree chars
+			// For now, flat list is better than nothing, but let's try to detect indent
+			indent := len(line) - len(strings.TrimLeft(line, " "))
+			
+			items = append(items, stackItem{
+				name:    cleanName,
+				current: current,
+				level:   indent / 2, // approximation
+			})
+		}
+		return stackLoadedMsg(items)
+	}
+}
+
 func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
 		fullCmd := commandStr
-		
-		// Append hook skipping if enabled and command supports it
-		// We target 'gt c' (commit) and 'gt s' (submit/push) mostly, but git commit is the main one.
-		// 'gt c' passes flags to git commit.
-		// 'gt m' (modify) also passes flags.
 		if skipHooks {
 			if strings.Contains(commandStr, "gt c") || strings.Contains(commandStr, "gt m") {
 				fullCmd += " --no-verify"
 			}
-			// For gt s (submit), it might run build steps? 
-			// Generally --no-verify is for git commit hooks.
 		}
 
 		if inputArg != "" {
 			fullCmd = fmt.Sprintf(`%s "%s"`, fullCmd, inputArg)
 		}
 		
-		// Use sh -c to allow chaining
 		cmd := exec.Command("sh", "-c", fullCmd)
 		out, err := cmd.CombinedOutput()
 		return cmdFinishedMsg{output: string(out), err: err, command: commandStr}
 	}
+}
+
+func executeCheckout(branch string) tea.Cmd {
+	return executeCommand("gt checkout "+branch, "", false)
 }
 
 func executeGhostFix(branchName string) tea.Cmd {
@@ -283,16 +375,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Global Quit
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
 		
-		// Back Navigation
-		if msg.String() == "esc" || (msg.String() == "q" && m.state != viewInput) {
-			if m.state == viewMenu {
-				return m, tea.Quit
-			}
+		if msg.String() == "esc" || (msg.String() == "q" && m.state == viewMenu) {
+			return m, tea.Quit
+		}
+		
+		// Back navigation
+		if msg.String() == "esc" {
 			m.state = viewMenu
 			return m, nil
 		}
@@ -308,14 +400,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < len(m.items)-1 {
 					m.cursor++
 				}
-			
-			// Toggle Hooks
 			case "h":
 				m.skipHooks = !m.skipHooks
 
 			case "enter":
 				selected := m.items[m.cursor]
 				
+				// Handle Special Features
+				if selected.title == "Start" {
+					m.state = viewWizardType
+					m.wizardTypeIdx = 0
+					return m, nil
+				}
+				
+				if selected.title == "Stack Map" {
+					m.state = viewStack
+					m.stackCursor = 0
+					return m, loadStack()
+				}
+
 				if selected.needsInput {
 					m.state = viewInput
 					m.textInput.Reset()
@@ -326,6 +429,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					return m, textinput.Blink
 				}
+				
 				m.state = viewRunning
 				return m, executeCommand(selected.command, "", m.skipHooks)
 			}
@@ -345,6 +449,79 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.textInput, cmd = m.textInput.Update(msg)
 			return m, cmd
 		
+		// --- Wizard Flow ---
+		case viewWizardType:
+			switch msg.String() {
+			case "up", "k":
+				if m.wizardTypeIdx > 0 {
+					m.wizardTypeIdx--
+				}
+			case "down", "j":
+				if m.wizardTypeIdx < len(m.commitTypes)-1 {
+					m.wizardTypeIdx++
+				}
+			case "enter":
+				m.state = viewWizardScope
+				m.textInput.Reset()
+				m.textInput.Placeholder = "auth, ui, api (optional)"
+				return m, textinput.Blink
+			}
+
+		case viewWizardScope:
+			switch msg.String() {
+			case "enter":
+				m.wizardScope = m.textInput.Value()
+				m.state = viewWizardSummary
+				m.textInput.Reset()
+				m.textInput.Placeholder = "Add new login button"
+				return m, textinput.Blink
+			}
+			m.textInput, cmd = m.textInput.Update(msg)
+			return m, cmd
+
+		case viewWizardSummary:
+			switch msg.String() {
+			case "enter":
+				m.wizardSummary = m.textInput.Value()
+				if m.wizardSummary == "" {
+					return m, nil // prevent empty commits
+				}
+				
+				// Construct commit message
+				// type(scope): summary OR type: summary
+				msgStr := m.commitTypes[m.wizardTypeIdx].label
+				if m.wizardScope != "" {
+					msgStr += fmt.Sprintf("(%s)", m.wizardScope)
+				}
+				msgStr += fmt.Sprintf(": %s", m.wizardSummary)
+
+				m.state = viewRunning
+				return m, executeCommand("gt c -am", msgStr, m.skipHooks)
+			}
+			m.textInput, cmd = m.textInput.Update(msg)
+			return m, cmd
+
+		// --- Stack Flow ---
+		case viewStack:
+			switch msg.String() {
+			case "up", "k":
+				if m.stackCursor > 0 {
+					m.stackCursor--
+				}
+			case "down", "j":
+				if m.stackCursor < len(m.stackItems)-1 {
+					m.stackCursor++
+				}
+			case "enter":
+				if len(m.stackItems) > 0 {
+					target := m.stackItems[m.stackCursor].name
+					m.state = viewRunning
+					return m, executeCheckout(target)
+				}
+			case "r":
+				return m, loadStack()
+			}
+
 		case viewOutput:
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
@@ -357,20 +534,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			outputContent = fmt.Sprintf("Error: %v\n\n%s", msg.err, msg.output)
 		} else {
-			// Handle empty output (common with some successful commands)
 			if strings.TrimSpace(outputContent) == "" {
 				outputContent = "Command executed successfully."
 			}
-
-			// Add helpful note for Update command
 			if strings.Contains(msg.command, "go install") {
 				outputContent += "\n\n✨ Update complete! Please restart the tool to apply changes."
 			}
 		}
-
-		// Clean up ANSI codes if needed, though viewport handles most
 		m.viewport.SetContent(outputContent)
-		return m, nil
+		
+		// Re-check status after any command
+		return m, checkGitStatus
+
+	case statusMsg:
+		m.suggestion = string(msg)
+
+	case stackLoadedMsg:
+		m.stackItems = msg
+		// Try to find current branch to set cursor
+		for i, item := range m.stackItems {
+			if item.current {
+				m.stackCursor = i
+				break
+			}
+		}
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -406,7 +593,6 @@ func (m model) View() string {
 			title := item.title
 			desc := item.desc
 			
-			// Visual selection logic
 			if m.cursor == i {
 				line := lipgloss.JoinHorizontal(lipgloss.Left,
 					selectedItemStyle.Render(title),
@@ -424,7 +610,6 @@ func (m model) View() string {
 		
 		listContent := lipgloss.JoinVertical(lipgloss.Left, listItems...)
 		
-		// Status / Settings Bar
 		hooksStatus := "Hooks: ON"
 		hooksStyle := toggleOffStyle
 		if m.skipHooks {
@@ -437,12 +622,25 @@ func (m model) View() string {
 			hooksStyle.Render(hooksStatus),
 		)
 
-		// Guide Box
-		selectedItem := m.items[m.cursor]
-		guideBox := guideStyle.Render(
-			lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow)).Bold(true).Render("💡 Tip: ") + 
-			selectedItem.guide,
-		)
+		// Co-Pilot / Guide Logic
+		guideText := m.items[m.cursor].guide
+		guideTitle := "💡 Tip: "
+		guideColor := colorYellow
+		
+		// Override with Smart Suggestion if available
+		if m.suggestion != "" && strings.HasPrefix(m.suggestion, "suggestion:") {
+			guideText = strings.TrimPrefix(m.suggestion, "suggestion: ")
+			guideTitle = "🤖 Co-Pilot: "
+			guideColor = colorBlue
+		}
+
+		guideBox := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(guideColor)).
+			MarginTop(1).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colorGray)).
+			Render(lipgloss.NewStyle().Bold(true).Render(guideTitle) + guideText)
 
 		content = lipgloss.JoinVertical(lipgloss.Left, 
 			listTitleStyle.Render("Select an action:"),
@@ -450,6 +648,67 @@ func (m model) View() string {
 			"\n",
 			settingsBar,
 			guideBox,
+		)
+
+	case viewWizardType:
+		var types []string
+		for i, t := range m.commitTypes {
+			prefix := "  "
+			style := itemStyle
+			if i == m.wizardTypeIdx {
+				prefix = "> "
+				style = selectedItemStyle
+			}
+			types = append(types, style.Render(fmt.Sprintf("%s%s: %s", prefix, t.label, t.desc)))
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			inputTitleStyle.Render("Step 1: Select Commit Type"),
+			lipgloss.JoinVertical(lipgloss.Left, types...),
+		)
+
+	case viewWizardScope:
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			inputTitleStyle.Render("Step 2: Enter Scope (Optional)"),
+			subHeaderStyle.Render("e.g. auth, ui, api"),
+			inputBoxStyle.Render(m.textInput.View()),
+		)
+
+	case viewWizardSummary:
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			inputTitleStyle.Render("Step 3: Enter Summary"),
+			subHeaderStyle.Render("e.g. add new login button"),
+			inputBoxStyle.Render(m.textInput.View()),
+		)
+
+	case viewStack:
+		var items []string
+		if len(m.stackItems) == 0 {
+			items = append(items, itemStyle.Render("No stack found or empty."))
+		} else {
+			for i, s := range m.stackItems {
+				prefix := "  "
+				// Indentation
+				indent := strings.Repeat("  ", s.level)
+				marker := " "
+				style := itemStyle
+				
+				if s.current {
+					marker = "*"
+				}
+				
+				if i == m.stackCursor {
+					prefix = "> "
+					style = selectedItemStyle
+				}
+
+				label := fmt.Sprintf("%s%s%s %s", prefix, indent, marker, s.name)
+				items = append(items, style.Render(label))
+			}
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			inputTitleStyle.Render("Stack Map (GPS)"),
+			lipgloss.JoinVertical(lipgloss.Left, items...),
+			"\n"+subHeaderStyle.Render("Enter to checkout • r to refresh • Esc back"),
 		)
 
 	case viewInput:

@@ -188,13 +188,13 @@ func initialModel() model {
 
 	return model{
 		state: viewMenu,
-		version: "v1.2.0",
+		version: "v1.2.1",
 		items: []menuItem{
 			{
 				title: "Start", 
 				desc: "Create branch & commit (Wizard)", 
 				guide: "Starts a new task. We'll guide you through creating a perfect commit message.",
-				command: "gt c -am", 
+				command: "git add -A && gt c -m", 
 				isComplex: true, // Switched to complex for Wizard
 			},
 			{
@@ -361,7 +361,7 @@ func executeCheckout(branch string) tea.Cmd {
 }
 
 func executeGhostFix(branchName string) tea.Cmd {
-	script := fmt.Sprintf(`gt c -am "%s" && gt rebase main && gt sync`, branchName)
+	script := fmt.Sprintf(`git add -A && gt c -m "%s" && gt rebase main && gt sync`, branchName)
 	c := exec.Command("sh", "-c", script)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return cmdFinishedMsg{err: err, command: "GHOST FIX"}
@@ -494,7 +494,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				msgStr += fmt.Sprintf(": %s", m.wizardSummary)
 
 				m.state = viewRunning
-				return m, executeCommand("gt c -am", msgStr, m.skipHooks)
+				return m, executeCommand("git add -A && gt c -m", msgStr, m.skipHooks)
 			}
 			m.textInput, cmd = m.textInput.Update(msg)
 			return m, cmd

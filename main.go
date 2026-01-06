@@ -220,7 +220,7 @@ func initialModel() model {
 				title: "Update Tool",
 				desc: "Update Graphite TUI",
 				guide: "Updates this tool to the latest version from GitHub.",
-				command: "go install github.com/adrian/graphite-tui@latest",
+				command: "go install github.com/Adrian95/graphite-tui@latest",
 			},
 		},
 		textInput: ti,

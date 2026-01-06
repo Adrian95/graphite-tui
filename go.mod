@@ -1,4 +1,4 @@
-module github.com/adrian/graphite-tui
+module github.com/Adrian95/graphite-tui
 
 go 1.25.5
 

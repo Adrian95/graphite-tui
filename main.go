@@ -207,7 +207,7 @@ func initialModel() model {
 				title: "Fix", 
 				desc: "Amend changes", 
 				guide: "Made a mistake? This updates the current commit without creating a new one.",
-				command: "gt m -a",
+				command: "gt m -a --no-edit",
 			},
 			{
 				title: "Sync", 
@@ -346,10 +346,29 @@ func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd 
 		}
 	}
 
+	// Safety: If inputArg is present, pass it safely as $1 to sh -c
 	if inputArg != "" {
-		fullCmd = fmt.Sprintf(`%s "%s"`, fullCmd, inputArg)
+		// Construct the command to use $1
+		// Example: "git add -A && gt c -m" becomes "git add -A && gt c -m \"$1\""
+		// We assume the commandStr expects the argument at the end or we append it.
+		// For "Start" (git add -A && gt c -m), we want: git add -A && gt c -m "$1"
+		// For "Fix" (gt m -a), we might not have inputArg usually, but if we did...
+		
+		// Heuristic: If command ends with -m, append "$1". Otherwise append " $1".
+		separator := " "
+		if strings.HasSuffix(strings.TrimSpace(fullCmd), "-m") {
+			separator = " " // gt c -m "$1"
+		}
+		
+		script := fmt.Sprintf("%s%s\"$1\"", fullCmd, separator)
+		// Now run sh -c script -- inputArg
+		c := exec.Command("sh", "-c", script, "--", inputArg)
+		return tea.ExecProcess(c, func(err error) tea.Msg {
+			return cmdFinishedMsg{err: err, command: commandStr}
+		})
 	}
 	
+	// No input arg, just run the command string
 	c := exec.Command("sh", "-c", fullCmd)
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return cmdFinishedMsg{err: err, command: commandStr}

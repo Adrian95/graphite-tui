@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -15,14 +16,15 @@ import (
 // --- Theme & Styles ---
 
 const (
-	colorBlack   = "#000000"
-	colorWhite   = "#EDEDED"
-	colorGray    = "#666666"
+	colorBlack     = "#000000"
+	colorWhite     = "#EDEDED"
+	colorGray      = "#666666"
 	colorLightGray = "#999999"
-	colorBlue    = "#0070F3" // Vercel Blue
-	colorPurple  = "#7928CA" // Vercel Purple
-	colorRed     = "#FF4500" // Error Red
-	colorGreen   = "#00C64F" // Success Green
+	colorBlue      = "#0070F3" // Vercel Blue
+	colorPurple    = "#7928CA" // Vercel Purple
+	colorRed       = "#FF4500" // Error Red
+	colorGreen     = "#00C64F" // Success Green
+	colorYellow    = "#F5A623" // Warning/Guide
 )
 
 var (
@@ -34,10 +36,15 @@ var (
 			Foreground(lipgloss.Color(colorWhite)).
 			Bold(true).
 			MarginBottom(1)
-	
+
 	subHeaderStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorGray)).
 			MarginLeft(1)
+	
+	versionStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorGray)).
+			MarginLeft(1).
+			Italic(true)
 
 	// List
 	listTitleStyle = lipgloss.NewStyle().
@@ -60,13 +67,20 @@ var (
 			Foreground(lipgloss.Color(colorGray)).
 			Italic(true).
 			MarginLeft(2)
+	
+	guideStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorYellow)).
+			MarginTop(1).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colorGray))
 
 	// Input
 	inputTitleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorBlue)).
 			Bold(true).
 			MarginBottom(1)
-	
+
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(colorGray)).
@@ -84,6 +98,10 @@ var (
 
 	statusSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
 	statusErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorRed))
+	
+	// Toggles
+	toggleOnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
+	toggleOffStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray))
 )
 
 // --- Model Definitions ---
@@ -100,9 +118,11 @@ const (
 type menuItem struct {
 	title       string
 	desc        string
+	guide       string // Beginner guidance text
 	command     string
 	needsInput  bool
 	isComplex   bool
+	confirm     bool
 }
 
 type model struct {
@@ -116,6 +136,10 @@ type model struct {
 	width      int
 	height     int
 	err        error
+	
+	// Options
+	skipHooks bool
+	version   string
 }
 
 func initialModel() model {
@@ -138,20 +162,71 @@ func initialModel() model {
 
 	return model{
 		state: viewMenu,
+		version: "v1.1.0",
 		items: []menuItem{
-			{title: "Start", desc: "Create branch & commit", command: "gt c -am", needsInput: true},
-			{title: "Preview", desc: "Push & Open PR", command: "gt s"},
-			{title: "Fix", desc: "Amend changes", command: "gt m -a"},
-			{title: "Sync", desc: "Update local stack", command: "gt sync"},
-			{title: "Done", desc: "Merge & Cleanup", command: "gt merge && gt sync", isComplex: true},
-			{title: "Fold", desc: "Squash stack", command: "gt fold"},
-			{title: "Undo", desc: "Undo last command", command: "gt undo"},
-			{title: "Ghost Fix", desc: "Rescue ghost branch", command: "", isComplex: true, needsInput: true},
-			{title: "Status", desc: "View stack", command: "gt ls"},
+			{
+				title: "Start", 
+				desc: "Create branch & commit", 
+				guide: "Use this when you start a new task. It creates a new branch and commits your initial work.",
+				command: "gt c -am", 
+				needsInput: true,
+			},
+			{
+				title: "Preview", 
+				desc: "Push & Open PR", 
+				guide: "Uploads your changes to GitHub and opens a Pull Request for review.",
+				command: "gt s",
+			},
+			{
+				title: "Fix", 
+				desc: "Amend changes", 
+				guide: "Made a mistake or received feedback? This updates the current commit without creating a new one.",
+				command: "gt m -a",
+			},
+			{
+				title: "Sync", 
+				desc: "Update local stack", 
+				guide: "Pulls the latest changes from main and updates your branch stack. Run this often!",
+				command: "gt sync",
+			},
+			{
+				title: "Done", 
+				desc: "Merge & Cleanup", 
+				guide: "Merges the current stack and deletes local branches. Use only when your PR is approved and merged.",
+				command: "gt merge && gt sync", 
+				isComplex: true,
+			},
+			{
+				title: "Fold", 
+				desc: "Squash stack", 
+				guide: "Combines multiple commits/branches into one. Useful if you accidentally branched off a branch.",
+				command: "gt fold",
+			},
+			{
+				title: "Ghost Fix", 
+				desc: "Rescue ghost branch", 
+				guide: "Fixes the 'working on a merged branch' issue. Moves your work to a new clean branch.",
+				command: "", 
+				isComplex: true, 
+				needsInput: true,
+			},
+			{
+				title: "Status", 
+				desc: "View stack", 
+				guide: "Shows where you are in the dependency stack. Think of it as a map of your work.",
+				command: "gt ls",
+			},
+			{
+				title: "Update Tool",
+				desc: "Update Graphite TUI",
+				guide: "Updates this tool to the latest version from GitHub.",
+				command: "go install github.com/adrian/graphite-tui@latest",
+			},
 		},
 		textInput: ti,
 		spinner:   s,
 		viewport:  vp,
+		skipHooks: false, // Default to running hooks
 	}
 }
 
@@ -166,12 +241,26 @@ type cmdFinishedMsg struct {
 	err    error
 }
 
-func executeCommand(commandStr string, inputArg string) tea.Cmd {
+func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
 		fullCmd := commandStr
-		if inputArg != "" {
-			fullCmd = fmt.Sprintf(`%s "%s"`, commandStr, inputArg)
+		
+		// Append hook skipping if enabled and command supports it
+		// We target 'gt c' (commit) and 'gt s' (submit/push) mostly, but git commit is the main one.
+		// 'gt c' passes flags to git commit.
+		// 'gt m' (modify) also passes flags.
+		if skipHooks {
+			if strings.Contains(commandStr, "gt c") || strings.Contains(commandStr, "gt m") {
+				fullCmd += " --no-verify"
+			}
+			// For gt s (submit), it might run build steps? 
+			// Generally --no-verify is for git commit hooks.
 		}
+
+		if inputArg != "" {
+			fullCmd = fmt.Sprintf(`%s "%s"`, fullCmd, inputArg)
+		}
+		
 		// Use sh -c to allow chaining
 		cmd := exec.Command("sh", "-c", fullCmd)
 		out, err := cmd.CombinedOutput()
@@ -218,8 +307,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.cursor < len(m.items)-1 {
 					m.cursor++
 				}
+			
+			// Toggle Hooks
+			case "h":
+				m.skipHooks = !m.skipHooks
+
 			case "enter":
 				selected := m.items[m.cursor]
+				
 				if selected.needsInput {
 					m.state = viewInput
 					m.textInput.Reset()
@@ -231,7 +326,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, textinput.Blink
 				}
 				m.state = viewRunning
-				return m, executeCommand(selected.command, "")
+				return m, executeCommand(selected.command, "", m.skipHooks)
 			}
 
 		case viewInput:
@@ -244,7 +339,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selected.title == "Ghost Fix" {
 					return m, executeGhostFix(inputVal)
 				}
-				return m, executeCommand(selected.command, inputVal)
+				return m, executeCommand(selected.command, inputVal, m.skipHooks)
 			}
 			m.textInput, cmd = m.textInput.Update(msg)
 			return m, cmd
@@ -274,7 +369,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - 8 
+		m.viewport.Height = msg.Height - 12 
 	}
 
 	return m, nil
@@ -287,6 +382,7 @@ func (m model) View() string {
 	header := lipgloss.JoinHorizontal(lipgloss.Left,
 		headerStyle.Render("Graphite"),
 		subHeaderStyle.Render("/ Speedrun"),
+		versionStyle.Render(m.version),
 	)
 
 	var content string
@@ -313,10 +409,35 @@ func (m model) View() string {
 				listItems = append(listItems, line)
 			}
 		}
-		content = lipgloss.JoinVertical(lipgloss.Left, listItems...)
+		
+		listContent := lipgloss.JoinVertical(lipgloss.Left, listItems...)
+		
+		// Status / Settings Bar
+		hooksStatus := "Hooks: ON"
+		hooksStyle := toggleOffStyle
+		if m.skipHooks {
+			hooksStatus = "Hooks: SKIPPED"
+			hooksStyle = toggleOnStyle
+		}
+		
+		settingsBar := lipgloss.JoinHorizontal(lipgloss.Left,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray)).Render("Press 'h' to toggle git hooks: "),
+			hooksStyle.Render(hooksStatus),
+		)
+
+		// Guide Box
+		selectedItem := m.items[m.cursor]
+		guideBox := guideStyle.Render(
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow)).Bold(true).Render("💡 Tip: ") + 
+			selectedItem.guide,
+		)
+
 		content = lipgloss.JoinVertical(lipgloss.Left, 
 			listTitleStyle.Render("Select an action:"),
-			content,
+			listContent,
+			"\n",
+			settingsBar,
+			guideBox,
 		)
 
 	case viewInput:
@@ -325,6 +446,7 @@ func (m model) View() string {
 			inputTitleStyle.Render(fmt.Sprintf("%s > Input", title)),
 			inputBoxStyle.Render(m.textInput.View()),
 			"\n"+subHeaderStyle.Render("Press Enter to confirm • Esc to cancel"),
+			"\n"+lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow)).Render("Note: Git hooks will be skipped if enabled."),
 		)
 
 	case viewRunning:

@@ -237,8 +237,9 @@ func (m model) Init() tea.Cmd {
 // --- Logic ---
 
 type cmdFinishedMsg struct {
-	output string
-	err    error
+	output  string
+	err     error
+	command string
 }
 
 func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd {
@@ -264,7 +265,7 @@ func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd 
 		// Use sh -c to allow chaining
 		cmd := exec.Command("sh", "-c", fullCmd)
 		out, err := cmd.CombinedOutput()
-		return cmdFinishedMsg{output: string(out), err: err}
+		return cmdFinishedMsg{output: string(out), err: err, command: commandStr}
 	}
 }
 
@@ -273,7 +274,7 @@ func executeGhostFix(branchName string) tea.Cmd {
 		script := fmt.Sprintf(`gt c -am "%s" && gt rebase main && gt sync`, branchName)
 		cmd := exec.Command("sh", "-c", script)
 		out, err := cmd.CombinedOutput()
-		return cmdFinishedMsg{output: string(out), err: err}
+		return cmdFinishedMsg{output: string(out), err: err, command: "GHOST FIX"}
 	}
 }
 
@@ -355,7 +356,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		outputContent := msg.output
 		if msg.err != nil {
 			outputContent = fmt.Sprintf("Error: %v\n\n%s", msg.err, msg.output)
+		} else {
+			// Handle empty output (common with some successful commands)
+			if strings.TrimSpace(outputContent) == "" {
+				outputContent = "Command executed successfully."
+			}
+
+			// Add helpful note for Update command
+			if strings.Contains(msg.command, "go install") {
+				outputContent += "\n\n✨ Update complete! Please restart the tool to apply changes."
+			}
 		}
+
 		// Clean up ANSI codes if needed, though viewport handles most
 		m.viewport.SetContent(outputContent)
 		return m, nil

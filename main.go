@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -13,103 +13,13 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// --- Theme & Styles ---
-
-const (
-	colorBlack     = "#000000"
-	colorWhite     = "#EDEDED"
-	colorGray      = "#666666"
-	colorLightGray = "#999999"
-	colorBlue      = "#0070F3" // Vercel Blue
-	colorPurple    = "#7928CA" // Vercel Purple
-	colorRed       = "#FF4500" // Error Red
-	colorGreen     = "#00C64F" // Success Green
-	colorYellow    = "#F5A623" // Warning/Guide
-)
-
-var (
-	// Layout
-	docStyle = lipgloss.NewStyle().Margin(1, 2)
-
-	// Header
-	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorWhite)).
-			Bold(true).
-			MarginBottom(1)
-
-	subHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			MarginLeft(1)
-	
-	versionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			MarginLeft(1).
-			Italic(true)
-
-	// List
-	listTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			MarginBottom(1)
-
-	itemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			PaddingLeft(2)
-
-	selectedItemStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorWhite)).
-				Bold(true).
-				BorderLeft(true).
-				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.Color(colorBlue)).
-				PaddingLeft(1)
-
-	descStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			Italic(true).
-			MarginLeft(2)
-	
-	guideStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorYellow)).
-			MarginTop(1).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorGray))
-
-	// Input
-	inputTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorBlue)).
-			Bold(true).
-			MarginBottom(1)
-
-	inputBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorGray)).
-			Padding(0, 1).
-			Width(60)
-
-	// Output
-	outputHeaderStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorWhite)).
-			Background(lipgloss.Color(colorBlack)).
-			Border(lipgloss.NormalBorder(), false, false, true, false).
-			BorderForeground(lipgloss.Color(colorGray)).
-			Padding(0, 1).
-			Width(80)
-
-	statusSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
-	statusErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorRed))
-	
-	// Toggles
-	toggleOnStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
-	toggleOffStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray))
-)
-
-// --- Model Definitions ---
+// --- View States ---
 
 type state int
 
 const (
-	viewMenu state = iota
+	viewDashboard state = iota // NEW: Default live dashboard
+	viewMenu                   // Full menu
 	viewInput
 	viewRunning
 	viewOutput
@@ -117,64 +27,80 @@ const (
 	viewWizardScope
 	viewWizardSummary
 	viewStack
+	viewHelp
+	viewUpdate
+	viewStartup // NEW: First-run prompt
 )
 
-type menuItem struct {
-	title       string
-	desc        string
-	guide       string // Beginner guidance text
-	command     string
-	needsInput  bool
-	isComplex   bool
-	confirm     bool
-}
-
-type commitType struct {
-	label string
-	desc  string
-}
+// --- Stack Item ---
 
 type stackItem struct {
 	name    string
 	current bool
-	level   int // for indentation
+	level   int
 }
 
+// --- Model ---
+
 type model struct {
-	state      state
-	items      []menuItem
-	cursor     int
-	textInput  textinput.Model
-	viewport   viewport.Model
-	spinner    spinner.Model
-	output     string
-	width      int
-	height     int
-	err        error
-	
+	state     state
+	prevState state // For returning from output view
+
+	// UI Components
+	textInput textinput.Model
+	viewport  viewport.Model
+	spinner   spinner.Model
+
+	// Dimensions
+	width  int
+	height int
+
+	// Dashboard state
+	branch       string
+	stack        []string
+	ahead        int
+	behind       int
+	changedFiles []ChangedFile
+	lastRefresh  time.Time
+	suggestion   string
+	hasStack     bool
+	onMain       bool
+
+	// Menu state
+	items  []menuItem
+	cursor int
+
+	// Wizard state
+	commitTypes   []commitType
+	wizardTypeIdx int
+	wizardScope   string
+	wizardSummary string
+
+	// Stack map state
+	stackItems  []stackItem
+	stackCursor int
+
+	// Output state
+	output  string
+	err     error
+	command string
+
 	// Options
 	skipHooks bool
-	version   string
-	suggestion string
 
-	// Wizard Data
-	commitTypes    []commitType
-	wizardTypeIdx  int
-	wizardScope    string
-	wizardSummary  string
-	
-	// Stack Data
-	stackItems []stackItem
-	stackCursor int
+	// Version state
+	latestVersion   string
+	checkingUpdate  bool
+	updateAvailable string
 }
 
 func initialModel() model {
 	ti := textinput.New()
-	ti.Placeholder = "Type your commit message..."
+	ti.Placeholder = "Type your message..."
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.Width = 50
-	ti.Prompt = "" // clean look
+	ti.Prompt = ""
 
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
@@ -187,384 +113,127 @@ func initialModel() model {
 		Padding(0, 1)
 
 	return model{
-		state: viewMenu,
-		version: "v1.3.0",
-		items: []menuItem{
-			{
-				title: "Start", 
-				desc: "Create branch & commit (Wizard)", 
-				guide: "Starts a new task. We'll guide you through creating a perfect commit message.",
-				// Use full graphite command with auto-stage and no-interactive
-				command: "gt create -a --no-interactive -m", 
-				isComplex: true, 
-			},
-			{
-				title: "Preview", 
-				desc: "Push & Open PR", 
-				guide: "Uploads your changes to GitHub and opens a Pull Request for review.",
-				command: "gt submit --no-interactive",
-			},
-			{
-				title: "Fix", 
-				desc: "Amend changes", 
-				guide: "Made a mistake? This updates the current commit without creating a new one.",
-				// Use modify with no-edit (passed to git) and no-interactive (for gt)
-				command: "gt modify -a --no-interactive --no-edit",
-			},
-			{
-				title: "Sync", 
-				desc: "Update local stack", 
-				guide: "Pulls latest changes. Run this often to stay up to date!",
-				command: "gt sync --no-interactive",
-			},
-			{
-				title: "Done", 
-				desc: "Merge & Cleanup", 
-				guide: "Merges the current stack and deletes local branches.",
-				command: "gt merge --no-interactive && gt sync --no-interactive", 
-				isComplex: true,
-			},
-			{
-				title: "Fold", 
-				desc: "Squash stack", 
-				guide: "Combines multiple commits/branches into one.",
-				command: "gt fold --no-interactive",
-			},
-			{
-				title: "Ghost Fix", 
-				desc: "Rescue ghost branch", 
-				guide: "Fixes the 'working on a merged branch' issue.",
-				command: "", 
-				isComplex: true, 
-				needsInput: true,
-			},
-			{
-				title: "Stack Map", 
-				desc: "Visual Dashboard", 
-				guide: "See your branch stack visually and jump between branches.",
-				command: "gt log short", // Explicitly use log short
-				isComplex: true,
-			},
-			{
-				title: "Update Tool",
-				desc: "Update Graphite TUI",
-				guide: "Updates this tool to the latest version from GitHub.",
-				command: "go install github.com/Adrian95/graphite-tui@latest",
-			},
-		},
-		commitTypes: []commitType{
-			{"feat", "A new feature"},
-			{"fix", "A bug fix"},
-			{"docs", "Documentation only changes"},
-			{"style", "Changes that do not affect the meaning of the code"},
-			{"refactor", "A code change that neither fixes a bug nor adds a feature"},
-			{"perf", "A code change that improves performance"},
-			{"test", "Adding missing tests or correcting existing tests"},
-			{"chore", "Changes to the build process or auxiliary tools"},
-		},
-		textInput: ti,
-		spinner:   s,
-		viewport:  vp,
-		skipHooks: false, 
+		state:       viewDashboard,
+		items:       getMenuItems(),
+		commitTypes: getCommitTypes(),
+		textInput:   ti,
+		spinner:     s,
+		viewport:    vp,
+		skipHooks:   false,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, spinner.Tick, checkGitStatus)
+	return tea.Batch(
+		textinput.Blink,
+		spinner.Tick,
+		RefreshNow(),                      // Initial status check
+		checkForUpdates(),                 // Check for updates
+		tickEvery(3*time.Second),          // Auto-refresh every 3s
+	)
 }
 
-// --- Logic ---
-
-type cmdFinishedMsg struct {
-	output  string
-	err     error
-	command string
-}
-
-type statusMsg string
-type stackLoadedMsg []stackItem
-
-func checkGitStatus() tea.Msg {
-	// Check for uncommitted changes
-	cmd := exec.Command("git", "status", "--porcelain")
-	out, err := cmd.Output()
-	if err == nil && len(out) > 0 {
-		return statusMsg("suggestion: You have uncommitted changes. Try 'Start' (new) or 'Fix' (amend).")
-	}
-	
-	// Check if ahead of remote (simple check)
-	cmd = exec.Command("git", "status", "-sb")
-	out, err = cmd.Output()
-	if err == nil && strings.Contains(string(out), "ahead") {
-		return statusMsg("suggestion: Your branch is ahead. Try 'Preview' to push.")
-	}
-	
-	return statusMsg("")
-}
-
-func loadStack() tea.Cmd {
-	return func() tea.Msg {
-		// Use full command
-		cmd := exec.Command("gt", "log", "short")
-		out, err := cmd.Output()
-		if err != nil {
-			return stackLoadedMsg{} 
-		}
-		
-		var items []stackItem
-		lines := strings.Split(string(out), "\n")
-		for _, line := range lines {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			
-			// Simple parser for gt log short output
-			current := strings.Contains(line, "*")
-			cleanName := strings.TrimSpace(line)
-			cleanName = strings.TrimPrefix(cleanName, "* ")
-			
-			// Indentation check
-			indent := len(line) - len(strings.TrimLeft(line, " "))
-			
-			items = append(items, stackItem{
-				name:    cleanName,
-				current: current,
-				level:   indent / 2, 
-			})
-		}
-		return stackLoadedMsg(items)
-	}
-}
-
-func executeCommand(commandStr string, inputArg string, skipHooks bool) tea.Cmd {
-	fullCmd := commandStr
-	if skipHooks {
-		// Pass --no-verify to gt commands (it passes it down to git)
-		if strings.Contains(commandStr, "gt ") {
-			fullCmd += " --no-verify"
-		}
-	}
-
-	// Safety: If inputArg is present, pass it safely as $1 to sh -c
-	if inputArg != "" {
-		// Heuristic: If command ends with -m, append "$1". Otherwise append " $1".
-		separator := " "
-		if strings.HasSuffix(strings.TrimSpace(fullCmd), "-m") {
-			separator = " " 
-		}
-		
-		script := fmt.Sprintf("%s%s\"$1\"", fullCmd, separator)
-		// Run with argument
-		c := exec.Command("sh", "-c", script, "--", inputArg)
-		return tea.ExecProcess(c, func(err error) tea.Msg {
-			return cmdFinishedMsg{err: err, command: commandStr}
-		})
-	}
-	
-	// No input arg, just run the command string
-	c := exec.Command("sh", "-c", fullCmd)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return cmdFinishedMsg{err: err, command: commandStr}
-	})
-}
-
-func executeCheckout(branch string) tea.Cmd {
-	return executeCommand("gt checkout "+branch, "", false)
-}
-
-func executeGhostFix(branchName string) tea.Cmd {
-	// Full command sequence for Ghost Fix
-	script := fmt.Sprintf(`gt create -a --no-interactive -m "%s" && gt rebase main --no-interactive && gt sync --no-interactive`, branchName)
-	c := exec.Command("sh", "-c", script)
-	return tea.ExecProcess(c, func(err error) tea.Msg {
-		return cmdFinishedMsg{err: err, command: "GHOST FIX"}
-	})
-}
+// --- Update ---
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
+
+	// --- Keyboard Input ---
 	case tea.KeyMsg:
-		if msg.String() == "ctrl+c" {
+		key := msg.String()
+
+		// Global quit
+		if key == "ctrl+c" {
 			return m, tea.Quit
-		}
-		
-		if msg.String() == "esc" || (msg.String() == "q" && m.state == viewMenu) {
-			return m, tea.Quit
-		}
-		
-		// Back navigation
-		if msg.String() == "esc" {
-			m.state = viewMenu
-			return m, nil
 		}
 
+		// Handle based on current state
 		switch m.state {
+
+		case viewDashboard:
+			return m.handleDashboardKeys(key)
+
 		case viewMenu:
-			switch msg.String() {
-			case "up", "k":
-				if m.cursor > 0 {
-					m.cursor--
-				}
-			case "down", "j":
-				if m.cursor < len(m.items)-1 {
-					m.cursor++
-				}
-			case "h":
-				m.skipHooks = !m.skipHooks
-
-			case "enter":
-				selected := m.items[m.cursor]
-				
-				// Handle Special Features
-				if selected.title == "Start" {
-					m.state = viewWizardType
-					m.wizardTypeIdx = 0
-					return m, nil
-				}
-				
-				if selected.title == "Stack Map" {
-					m.state = viewStack
-					m.stackCursor = 0
-					return m, loadStack()
-				}
-
-				if selected.needsInput {
-					m.state = viewInput
-					m.textInput.Reset()
-					if selected.title == "Ghost Fix" {
-						m.textInput.Placeholder = "New branch name..."
-					} else {
-						m.textInput.Placeholder = "Commit message..."
-					}
-					return m, textinput.Blink
-				}
-				
-				m.state = viewRunning
-				return m, executeCommand(selected.command, "", m.skipHooks)
-			}
+			return m.handleMenuKeys(key)
 
 		case viewInput:
-			switch msg.String() {
-			case "enter":
-				inputVal := m.textInput.Value()
-				selected := m.items[m.cursor]
-				m.state = viewRunning
-				
-				if selected.title == "Ghost Fix" {
-					return m, executeGhostFix(inputVal)
-				}
-				return m, executeCommand(selected.command, inputVal, m.skipHooks)
-			}
-			m.textInput, cmd = m.textInput.Update(msg)
-			return m, cmd
-		
-		// --- Wizard Flow ---
+			return m.handleInputKeys(key, msg)
+
 		case viewWizardType:
-			switch msg.String() {
-			case "up", "k":
-				if m.wizardTypeIdx > 0 {
-					m.wizardTypeIdx--
-				}
-			case "down", "j":
-				if m.wizardTypeIdx < len(m.commitTypes)-1 {
-					m.wizardTypeIdx++
-				}
-			case "enter":
-				m.state = viewWizardScope
-				m.textInput.Reset()
-				m.textInput.Placeholder = "auth, ui, api (optional)"
-				return m, textinput.Blink
-			}
+			return m.handleWizardTypeKeys(key)
 
 		case viewWizardScope:
-			switch msg.String() {
-			case "enter":
-				m.wizardScope = m.textInput.Value()
-				m.state = viewWizardSummary
-				m.textInput.Reset()
-				m.textInput.Placeholder = "Add new login button"
-				return m, textinput.Blink
-			}
-			m.textInput, cmd = m.textInput.Update(msg)
-			return m, cmd
+			return m.handleWizardScopeKeys(key, msg)
 
 		case viewWizardSummary:
-			switch msg.String() {
-			case "enter":
-				m.wizardSummary = m.textInput.Value()
-				if m.wizardSummary == "" {
-					return m, nil // prevent empty commits
-				}
-				
-				// Construct commit message
-				// type(scope): summary OR type: summary
-				msgStr := m.commitTypes[m.wizardTypeIdx].label
-				if m.wizardScope != "" {
-					msgStr += fmt.Sprintf("(%s)", m.wizardScope)
-				}
-				msgStr += fmt.Sprintf(": %s", m.wizardSummary)
+			return m.handleWizardSummaryKeys(key, msg)
 
-				m.state = viewRunning
-				// Use the new explicit command structure
-				// NOTE: We hardcode the base command here to match the new "Start" definition
-				return m, executeCommand("gt create -a --no-interactive -m", msgStr, m.skipHooks)
-			}
-			m.textInput, cmd = m.textInput.Update(msg)
-			return m, cmd
-
-		// --- Stack Flow ---
 		case viewStack:
-			switch msg.String() {
-			case "up", "k":
-				if m.stackCursor > 0 {
-					m.stackCursor--
-				}
-			case "down", "j":
-				if m.stackCursor < len(m.stackItems)-1 {
-					m.stackCursor++
-				}
-			case "enter":
-				if len(m.stackItems) > 0 {
-					target := m.stackItems[m.stackCursor].name
-					m.state = viewRunning
-					return m, executeCheckout(target)
-				}
-			case "r":
-				return m, loadStack()
+			return m.handleStackKeys(key)
+
+		case viewHelp:
+			if key == "esc" || key == "?" || key == "q" {
+				m.state = viewDashboard
 			}
+
+		case viewUpdate:
+			return m.handleUpdateKeys(key)
 
 		case viewOutput:
+			if key == "esc" || key == "enter" || key == "q" {
+				m.state = viewDashboard
+				return m, RefreshNow()
+			}
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
+
+		case viewRunning:
+			// Just wait for command to finish
 		}
 
+	// --- Status Update ---
+	case statusMsg:
+		m.branch = msg.branch
+		m.stack = msg.stack
+		m.ahead = msg.ahead
+		m.behind = msg.behind
+		m.changedFiles = msg.changedFiles
+		m.hasStack = msg.hasStack
+		m.onMain = msg.onMain
+		m.suggestion = msg.suggestion
+		m.lastRefresh = time.Now()
+
+		// Check if we should show startup prompt
+		if m.state == viewDashboard && !m.hasStack && m.onMain && len(m.changedFiles) == 0 {
+			// First time on main with no stack - could show startup
+			// But let's not interrupt if they've been using it
+		}
+
+	// --- Command Finished ---
 	case cmdFinishedMsg:
 		m.state = viewOutput
 		m.err = msg.err
-		outputContent := msg.output
+		m.command = msg.command
+
 		if msg.err != nil {
-			outputContent = fmt.Sprintf("Error: %v\n\n%s", msg.err, msg.output)
+			// Combine stderr and stdout for error display
+			m.output = msg.stderr
+			if m.output == "" {
+				m.output = msg.output
+			}
 		} else {
-			if strings.TrimSpace(outputContent) == "" {
-				outputContent = "Command executed successfully."
-			}
-			if strings.Contains(msg.command, "go install") {
-				outputContent += "\n\n✨ Update complete! Please restart the tool to apply changes."
-			}
+			m.output = msg.output
 		}
-		m.viewport.SetContent(outputContent)
-		
-		// Re-check status after any command
-		return m, checkGitStatus
 
-	case statusMsg:
-		m.suggestion = string(msg)
+		m.viewport.SetContent(m.output)
+		return m, RefreshNow()
 
+	// --- Stack Loaded ---
 	case stackLoadedMsg:
 		m.stackItems = msg
-		// Try to find current branch to set cursor
 		for i, item := range m.stackItems {
 			if item.current {
 				m.stackCursor = i
@@ -572,16 +241,323 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 
+	// --- Version Check ---
+	case versionCheckMsg:
+		m.checkingUpdate = false
+		if msg.err == nil && isNewerVersion(currentVersion, msg.latestVersion) {
+			m.latestVersion = msg.latestVersion
+			m.updateAvailable = msg.latestVersion
+		} else if msg.err == nil {
+			m.latestVersion = msg.latestVersion
+		}
+
+	// --- Update Complete ---
+	case updateCompleteMsg:
+		m.state = viewOutput
+		if msg.success {
+			m.output = msg.message + "\n\nPlease restart the application to use the new version."
+			m.err = nil
+		} else {
+			m.output = msg.message
+			m.err = msg.err
+		}
+		m.viewport.SetContent(m.output)
+
+	// --- Uninstall Complete ---
+	case uninstallCompleteMsg:
+		if msg.success {
+			fmt.Println("Graphite TUI has been uninstalled. Goodbye!")
+			return m, tea.Quit
+		}
+		m.state = viewOutput
+		m.err = msg.err
+		m.output = "Uninstall failed: " + msg.err.Error()
+		m.viewport.SetContent(m.output)
+
+	// --- Ticker ---
+	case tickMsg:
+		// Auto-refresh status
+		cmds = append(cmds, RefreshNow())
+		cmds = append(cmds, tickEvery(3*time.Second))
+
+	// --- Spinner ---
 	case spinner.TickMsg:
-		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
 
+	// --- Window Resize ---
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - 12 
+		m.viewport.Height = msg.Height - 12
+	}
+
+	return m, tea.Batch(cmds...)
+}
+
+// --- Key Handlers ---
+
+func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "q", "esc":
+		return m, tea.Quit
+
+	case "s": // Start
+		m.state = viewWizardType
+		m.wizardTypeIdx = 0
+		return m, nil
+
+	case "p": // Preview
+		m.state = viewRunning
+		return m, executeInteractive("gt submit --no-interactive", "", m.skipHooks)
+
+	case "f": // Fix
+		m.state = viewRunning
+		return m, executeInteractive("gt modify -a --no-interactive --no-edit", "", m.skipHooks)
+
+	case "y": // Sync
+		m.state = viewRunning
+		return m, executeInteractive("gt sync --no-interactive", "", m.skipHooks)
+
+	case "d": // Done
+		m.state = viewRunning
+		return m, executeInteractive("gt merge --no-interactive && gt sync --no-interactive", "", m.skipHooks)
+
+	case "g": // GPS / Stack Map
+		m.state = viewStack
+		m.stackCursor = 0
+		return m, loadStack()
+
+	case "m": // Menu
+		m.state = viewMenu
+		m.cursor = 0
+		return m, nil
+
+	case "?": // Help
+		m.state = viewHelp
+		return m, nil
+
+	case "u": // Update
+		m.state = viewUpdate
+		m.checkingUpdate = true
+		return m, checkForUpdates()
+
+	case "h": // Toggle hooks
+		m.skipHooks = !m.skipHooks
+		return m, nil
+
+	case "r": // Manual refresh
+		return m, RefreshNow()
+	}
+
+	return m, nil
+}
+
+func (m model) handleMenuKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "m":
+		m.state = viewDashboard
+		return m, nil
+
+	case "q":
+		return m, tea.Quit
+
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+
+	case "down", "j":
+		if m.cursor < len(m.items)-1 {
+			m.cursor++
+		}
+
+	case "h":
+		m.skipHooks = !m.skipHooks
+
+	case "enter":
+		if m.cursor < 0 || m.cursor >= len(m.items) {
+			return m, nil
+		}
+		selected := m.items[m.cursor]
+
+		if selected.title == "Start" {
+			m.state = viewWizardType
+			m.wizardTypeIdx = 0
+			return m, nil
+		}
+
+		if selected.title == "Stack Map" {
+			m.state = viewStack
+			m.stackCursor = 0
+			return m, loadStack()
+		}
+
+		if selected.title == "Ghost Fix" {
+			m.state = viewInput
+			m.textInput.Reset()
+			m.textInput.Placeholder = "New branch name..."
+			return m, textinput.Blink
+		}
+
+		if selected.command != "" {
+			m.state = viewRunning
+			return m, executeInteractive(selected.command, "", m.skipHooks)
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) handleInputKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.state = viewDashboard
+		return m, nil
+
+	case "enter":
+		inputVal := m.textInput.Value()
+		if inputVal == "" {
+			return m, nil
+		}
+
+		if m.cursor < 0 || m.cursor >= len(m.items) {
+			return m, nil
+		}
+		selected := m.items[m.cursor]
+		m.state = viewRunning
+
+		if selected.title == "Ghost Fix" {
+			return m, executeGhostFix(inputVal, m.skipHooks)
+		}
+		return m, executeInteractive(selected.command, inputVal, m.skipHooks)
+	}
+
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleWizardTypeKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.state = viewDashboard
+		return m, nil
+
+	case "up", "k":
+		if m.wizardTypeIdx > 0 {
+			m.wizardTypeIdx--
+		}
+
+	case "down", "j":
+		if m.wizardTypeIdx < len(m.commitTypes)-1 {
+			m.wizardTypeIdx++
+		}
+
+	case "enter":
+		m.state = viewWizardScope
+		m.textInput.Reset()
+		m.textInput.Placeholder = "auth, ui, api (optional)"
+		return m, textinput.Blink
+	}
+
+	return m, nil
+}
+
+func (m model) handleWizardScopeKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.state = viewDashboard
+		return m, nil
+
+	case "enter":
+		m.wizardScope = m.textInput.Value()
+		m.state = viewWizardSummary
+		m.textInput.Reset()
+		m.textInput.Placeholder = "Add new login button"
+		return m, textinput.Blink
+	}
+
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.state = viewDashboard
+		return m, nil
+
+	case "enter":
+		m.wizardSummary = m.textInput.Value()
+		if m.wizardSummary == "" {
+			return m, nil
+		}
+
+		// Build commit message
+		msgStr := m.commitTypes[m.wizardTypeIdx].label
+		if m.wizardScope != "" {
+			msgStr += fmt.Sprintf("(%s)", m.wizardScope)
+		}
+		msgStr += fmt.Sprintf(": %s", m.wizardSummary)
+
+		m.state = viewRunning
+		return m, executeInteractive("gt create -a --no-interactive -m", msgStr, m.skipHooks)
+	}
+
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
+func (m model) handleStackKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.state = viewDashboard
+		return m, nil
+
+	case "up", "k":
+		if m.stackCursor > 0 {
+			m.stackCursor--
+		}
+
+	case "down", "j":
+		if m.stackCursor < len(m.stackItems)-1 {
+			m.stackCursor++
+		}
+
+	case "enter":
+		if len(m.stackItems) > 0 {
+			target := m.stackItems[m.stackCursor].name
+			m.state = viewRunning
+			return m, executeCheckout(target)
+		}
+
+	case "r":
+		return m, loadStack()
+	}
+
+	return m, nil
+}
+
+func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.state = viewDashboard
+		return m, nil
+
+	case "u":
+		if m.latestVersion != "" && isNewerVersion(currentVersion, m.latestVersion) {
+			m.state = viewRunning
+			return m, performUpdate()
+		}
+
+	case "x":
+		// Confirm uninstall
+		m.state = viewRunning
+		return m, performUninstall()
 	}
 
 	return m, nil
@@ -590,184 +566,164 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // --- View ---
 
 func (m model) View() string {
-	// Header
-	header := lipgloss.JoinHorizontal(lipgloss.Left,
-		headerStyle.Render("Graphite"),
-		subHeaderStyle.Render("/ Speedrun"),
-		versionStyle.Render(m.version),
-	)
+	header := renderHeader(currentVersion, m.lastRefresh, m.updateAvailable)
 
 	var content string
 
 	switch m.state {
+
+	case viewDashboard:
+		// Branch info panel
+		branchPanel := renderBranchInfo(m.branch, m.stack, m.ahead, m.behind)
+
+		// Changed files panel
+		filesPanel := renderChangedFiles(m.changedFiles)
+
+		// Shortcuts bar
+		shortcuts := renderShortcutsBar(m.skipHooks)
+
+		// Co-pilot / guide
+		guide := ""
+		if m.cursor >= 0 && m.cursor < len(m.items) {
+			guide = m.items[m.cursor].guide
+		}
+		copilot := renderCopilot(m.suggestion, guide)
+
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			branchPanel,
+			"",
+			filesPanel,
+			"",
+			shortcuts,
+			"",
+			copilot,
+		)
+
 	case viewMenu:
 		var listItems []string
 		for i, item := range m.items {
-			title := item.title
-			desc := item.desc
-			
-			if m.cursor == i {
-				line := lipgloss.JoinHorizontal(lipgloss.Left,
-					selectedItemStyle.Render(title),
-					descStyle.Render(desc),
-				)
-				listItems = append(listItems, line)
-			} else {
-				line := lipgloss.JoinHorizontal(lipgloss.Left,
-					itemStyle.Render(title),
-					descStyle.Render(desc),
-				)
-				listItems = append(listItems, line)
-			}
+			listItems = append(listItems, renderMenuItem(item.title, item.desc, m.cursor == i))
 		}
-		
+
 		listContent := lipgloss.JoinVertical(lipgloss.Left, listItems...)
-		
+
 		hooksStatus := "Hooks: ON"
 		hooksStyle := toggleOffStyle
 		if m.skipHooks {
 			hooksStatus = "Hooks: SKIPPED"
 			hooksStyle = toggleOnStyle
 		}
-		
+
 		settingsBar := lipgloss.JoinHorizontal(lipgloss.Left,
-			lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray)).Render("Press 'h' to toggle git hooks: "),
+			subtitleStyle.Render("Press 'h' to toggle: "),
 			hooksStyle.Render(hooksStatus),
 		)
 
-		// Co-Pilot / Guide Logic
-		guideText := m.items[m.cursor].guide
-		guideTitle := "💡 Tip: "
-		guideColor := colorYellow
-		
-		// Override with Smart Suggestion if available
-		if m.suggestion != "" && strings.HasPrefix(m.suggestion, "suggestion:") {
-			guideText = strings.TrimPrefix(m.suggestion, "suggestion: ")
-			guideTitle = "🤖 Co-Pilot: "
-			guideColor = colorBlue
+		guide := ""
+		if m.cursor >= 0 && m.cursor < len(m.items) {
+			guide = m.items[m.cursor].guide
 		}
+		guideBox := renderCopilot(m.suggestion, guide)
 
-		guideBox := lipgloss.NewStyle().
-			Foreground(lipgloss.Color(guideColor)).
-			MarginTop(1).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorGray)).
-			Render(lipgloss.NewStyle().Bold(true).Render(guideTitle) + guideText)
-
-		content = lipgloss.JoinVertical(lipgloss.Left, 
-			listTitleStyle.Render("Select an action:"),
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			panelTitleStyle.Render("Select an action:"),
+			"",
 			listContent,
-			"\n",
+			"",
 			settingsBar,
+			"",
 			guideBox,
+			"",
+			subtitleStyle.Render("Press Esc to go back"),
 		)
 
 	case viewWizardType:
-		var types []string
-		for i, t := range m.commitTypes {
-			prefix := "  "
-			style := itemStyle
-			if i == m.wizardTypeIdx {
-				prefix = "> "
-				style = selectedItemStyle
-			}
-			types = append(types, style.Render(fmt.Sprintf("%s%s: %s", prefix, t.label, t.desc)))
-		}
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			inputTitleStyle.Render("Step 1: Select Commit Type"),
-			lipgloss.JoinVertical(lipgloss.Left, types...),
-		)
+		content = renderWizardTypes(m.commitTypes, m.wizardTypeIdx)
 
 	case viewWizardScope:
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			inputTitleStyle.Render("Step 2: Enter Scope (Optional)"),
-			subHeaderStyle.Render("e.g. auth, ui, api"),
+			subtitleStyle.Render("e.g. auth, ui, api"),
 			inputBoxStyle.Render(m.textInput.View()),
 		)
 
 	case viewWizardSummary:
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			inputTitleStyle.Render("Step 3: Enter Summary"),
-			subHeaderStyle.Render("e.g. add new login button"),
+			subtitleStyle.Render("e.g. add new login button"),
 			inputBoxStyle.Render(m.textInput.View()),
 		)
 
 	case viewStack:
-		var items []string
-		if len(m.stackItems) == 0 {
-			items = append(items, itemStyle.Render("No stack found or empty."))
-		} else {
-			for i, s := range m.stackItems {
-				prefix := "  "
-				// Indentation
-				indent := strings.Repeat("  ", s.level)
-				marker := " "
-				style := itemStyle
-				
-				if s.current {
-					marker = "*"
-				}
-				
-				if i == m.stackCursor {
-					prefix = "> "
-					style = selectedItemStyle
-				}
-
-				label := fmt.Sprintf("%s%s%s %s", prefix, indent, marker, s.name)
-				items = append(items, style.Render(label))
-			}
-		}
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			inputTitleStyle.Render("Stack Map (GPS)"),
-			lipgloss.JoinVertical(lipgloss.Left, items...),
-			"\n"+subHeaderStyle.Render("Enter to checkout • r to refresh • Esc back"),
-		)
+		content = renderStackMap(m.stackItems, m.stackCursor)
 
 	case viewInput:
 		title := m.items[m.cursor].title
 		content = lipgloss.JoinVertical(lipgloss.Left,
 			inputTitleStyle.Render(fmt.Sprintf("%s > Input", title)),
 			inputBoxStyle.Render(m.textInput.View()),
-			"\n"+subHeaderStyle.Render("Press Enter to confirm • Esc to cancel"),
-			"\n"+lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow)).Render("Note: Git hooks will be skipped if enabled."),
+			"",
+			subtitleStyle.Render("Press Enter to confirm • Esc to cancel"),
 		)
 
 	case viewRunning:
 		content = lipgloss.NewStyle().Margin(2, 0).Render(
-			fmt.Sprintf("%s Running %s...", m.spinner.View(), m.items[m.cursor].title),
+			fmt.Sprintf("%s Running...", m.spinner.View()),
 		)
 
 	case viewOutput:
-		status := statusSuccessStyle.Render("● Success")
 		if m.err != nil {
-			status = statusErrorStyle.Render("● Error")
+			content = renderError(m.err, m.output, m.command)
+		} else {
+			content = renderSuccess(m.output, m.command)
 		}
-		
-		topBar := lipgloss.JoinHorizontal(lipgloss.Left,
-			status,
-			subHeaderStyle.Render(" • Press q to close"),
-		)
 
+	case viewHelp:
+		content = renderHelp()
+
+	case viewUpdate:
+		content = renderUpdateView(currentVersion, m.latestVersion, m.checkingUpdate)
+	}
+
+	// Handle empty branch on first load
+	if m.branch == "" && m.state == viewDashboard {
 		content = lipgloss.JoinVertical(lipgloss.Left,
-			topBar,
-			m.viewport.View(),
+			panelStyle.Width(50).Render(
+				subtitleStyle.Render("Loading git status..."),
+			),
+			"",
+			renderShortcutsBar(m.skipHooks),
 		)
 	}
 
 	return docStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left,
 			header,
-			"\n",
+			"",
 			content,
 		),
 	)
 }
 
+// --- Main ---
+
 func main() {
+	// Check if git repo
+	if _, err := os.Stat(".git"); os.IsNotExist(err) {
+		fmt.Println("Not a git repository. Please run from a git project directory.")
+		os.Exit(1)
+	}
+
+	// Check if graphite is installed
+	if _, err := exec.LookPath("gt"); err != nil {
+		fmt.Println("Graphite CLI (gt) not found. Please install it first:")
+		fmt.Println("  https://graphite.dev/docs/cli/installation")
+		os.Exit(1)
+	}
+
 	p := tea.NewProgram(initialModel(), tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
+		fmt.Printf("Error: %v\n", err)
 		os.Exit(1)
 	}
 }

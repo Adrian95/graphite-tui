@@ -12,31 +12,81 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// Styles
+// --- Theme & Styles ---
+
+const (
+	colorBlack   = "#000000"
+	colorWhite   = "#EDEDED"
+	colorGray    = "#666666"
+	colorLightGray = "#999999"
+	colorBlue    = "#0070F3" // Vercel Blue
+	colorPurple  = "#7928CA" // Vercel Purple
+	colorRed     = "#FF4500" // Error Red
+	colorGreen   = "#00C64F" // Success Green
+)
+
 var (
-	titleStyle = lipgloss.NewStyle().
+	// Layout
+	docStyle = lipgloss.NewStyle().Margin(1, 2)
+
+	// Header
+	headerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorWhite)).
 			Bold(true).
-			Foreground(lipgloss.Color("#FAFAFA")).
-			Background(lipgloss.Color("#7D56F4")).
-			Padding(0, 1).
+			MarginBottom(1)
+	
+	subHeaderStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorGray)).
+			MarginLeft(1)
+
+	// List
+	listTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorGray)).
 			MarginBottom(1)
 
-	itemStyle = lipgloss.NewStyle().PaddingLeft(2)
+	itemStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorGray)).
+			PaddingLeft(2)
 
 	selectedItemStyle = lipgloss.NewStyle().
-				PaddingLeft(0).
-				Foreground(lipgloss.Color("205")).
-				SetString("> ")
+				Foreground(lipgloss.Color(colorWhite)).
+				Bold(true).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color(colorBlue)).
+				PaddingLeft(1)
 
-	shortcutStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+	descStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorGray)).
+			Italic(true).
+			MarginLeft(2)
 
-	commandStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#04B575"))
+	// Input
+	inputTitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorBlue)).
+			Bold(true).
+			MarginBottom(1)
+	
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colorGray)).
+			Padding(0, 1).
+			Width(60)
 
-	errorStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#FF0000"))
+	// Output
+	outputHeaderStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorWhite)).
+			Background(lipgloss.Color(colorBlack)).
+			Border(lipgloss.NormalBorder(), false, false, true, false).
+			BorderForeground(lipgloss.Color(colorGray)).
+			Padding(0, 1).
+			Width(80)
+
+	statusSuccessStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
+	statusErrorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorRed))
 )
+
+// --- Model Definitions ---
 
 type state int
 
@@ -50,10 +100,9 @@ const (
 type menuItem struct {
 	title       string
 	desc        string
-	command     string // The base command, or empty if it requires input/complex logic
-	needsInput  bool   // If true, prompts for input (commit msg)
-	needsConfirm bool  // If true, might ask for confirmation (not implemented yet, direct execution for speedrun)
-	isComplex   bool   // If true, runs a custom function (like Ghost Fix)
+	command     string
+	needsInput  bool
+	isComplex   bool
 }
 
 type model struct {
@@ -64,36 +113,41 @@ type model struct {
 	viewport   viewport.Model
 	spinner    spinner.Model
 	output     string
-	currentCmd *exec.Cmd
 	width      int
 	height     int
+	err        error
 }
 
 func initialModel() model {
 	ti := textinput.New()
-	ti.Placeholder = "feat: description"
+	ti.Placeholder = "Type your commit message..."
 	ti.Focus()
 	ti.CharLimit = 156
 	ti.Width = 50
+	ti.Prompt = "" // clean look
 
 	s := spinner.New()
-	s.Spinner = spinner.Dot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	s.Spinner = spinner.MiniDot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(colorBlue))
 
 	vp := viewport.New(80, 20)
+	vp.Style = lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color(colorGray)).
+		Padding(0, 1)
 
 	return model{
 		state: viewMenu,
 		items: []menuItem{
-			{title: "START", desc: "Create branch & commit", command: "gt c -am", needsInput: true},
-			{title: "PREVIEW", desc: "Push & Open PR (gt s)", command: "gt s"},
-			{title: "FIX", desc: "Amend changes (gt m -a)", command: "gt m -a"}, // User can run PREVIEW after
-			{title: "DONE", desc: "Merge & Cleanup (gt merge && gt sync)", command: "gt merge && gt sync", isComplex: true},
-			{title: "SYNC", desc: "Update local (gt sync)", command: "gt sync"},
-			{title: "FOLD", desc: "Squash stack (gt fold)", command: "gt fold"},
-			{title: "UNDO", desc: "Undo last command (gt undo)", command: "gt undo"},
-			{title: "GHOST FIX", desc: "Fix ghost branch", command: "", isComplex: true},
-			{title: "STATUS", desc: "Where am I? (gt ls)", command: "gt ls"},
+			{title: "Start", desc: "Create branch & commit", command: "gt c -am", needsInput: true},
+			{title: "Preview", desc: "Push & Open PR", command: "gt s"},
+			{title: "Fix", desc: "Amend changes", command: "gt m -a"},
+			{title: "Sync", desc: "Update local stack", command: "gt sync"},
+			{title: "Done", desc: "Merge & Cleanup", command: "gt merge && gt sync", isComplex: true},
+			{title: "Fold", desc: "Squash stack", command: "gt fold"},
+			{title: "Undo", desc: "Undo last command", command: "gt undo"},
+			{title: "Ghost Fix", desc: "Rescue ghost branch", command: "", isComplex: true, needsInput: true},
+			{title: "Status", desc: "View stack", command: "gt ls"},
 		},
 		textInput: ti,
 		spinner:   s,
@@ -105,6 +159,8 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(textinput.Blink, spinner.Tick)
 }
 
+// --- Logic ---
+
 type cmdFinishedMsg struct {
 	output string
 	err    error
@@ -112,34 +168,19 @@ type cmdFinishedMsg struct {
 
 func executeCommand(commandStr string, inputArg string) tea.Cmd {
 	return func() tea.Msg {
-		// Handle complex commands or chained commands
-		var cmd *exec.Cmd
-		
-		// Simple shell execution wrapper to handle && and arguments
 		fullCmd := commandStr
 		if inputArg != "" {
-			// specifically for gt c -am, we append the quoted message
 			fullCmd = fmt.Sprintf(`%s "%s"`, commandStr, inputArg)
 		}
-
-		// Use sh -c to allow chaining (&&) and proper argument parsing
-		cmd = exec.Command("sh", "-c", fullCmd)
-		
+		// Use sh -c to allow chaining
+		cmd := exec.Command("sh", "-c", fullCmd)
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			return cmdFinishedMsg{output: string(out), err: err}
-		}
-		return cmdFinishedMsg{output: string(out), err: nil}
+		return cmdFinishedMsg{output: string(out), err: err}
 	}
 }
 
 func executeGhostFix(branchName string) tea.Cmd {
 	return func() tea.Msg {
-		// 1. gt c -am "feat: correct branch name"
-		// 2. gt rebase main
-		// 3. gt sync
-		// Note: This is complex. For simplicity, we'll try to chain them in shell.
-		
 		script := fmt.Sprintf(`gt c -am "%s" && gt rebase main && gt sync`, branchName)
 		cmd := exec.Command("sh", "-c", script)
 		out, err := cmd.CombinedOutput()
@@ -152,16 +193,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "ctrl+c", "q":
-			if m.state != viewInput {
+		// Global Quit
+		if msg.String() == "ctrl+c" {
+			return m, tea.Quit
+		}
+		
+		// Back Navigation
+		if msg.String() == "esc" || (msg.String() == "q" && m.state != viewInput) {
+			if m.state == viewMenu {
 				return m, tea.Quit
 			}
-		case "esc":
-			if m.state == viewInput || m.state == viewOutput {
-				m.state = viewMenu
-				return m, nil
-			}
+			m.state = viewMenu
+			return m, nil
 		}
 
 		switch m.state {
@@ -180,10 +223,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if selected.needsInput {
 					m.state = viewInput
 					m.textInput.Reset()
-					if selected.title == "GHOST FIX" {
-						m.textInput.Placeholder = "feat: correct branch name"
+					if selected.title == "Ghost Fix" {
+						m.textInput.Placeholder = "New branch name..."
 					} else {
-						m.textInput.Placeholder = "feat: new thing"
+						m.textInput.Placeholder = "Commit message..."
 					}
 					return m, textinput.Blink
 				}
@@ -198,7 +241,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selected := m.items[m.cursor]
 				m.state = viewRunning
 				
-				if selected.title == "GHOST FIX" {
+				if selected.title == "Ghost Fix" {
 					return m, executeGhostFix(inputVal)
 				}
 				return m, executeCommand(selected.command, inputVal)
@@ -207,20 +250,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, cmd
 		
 		case viewOutput:
-			// Allow scrolling in viewport?
 			m.viewport, cmd = m.viewport.Update(msg)
 			return m, cmd
 		}
 
 	case cmdFinishedMsg:
 		m.state = viewOutput
-		outputContent := ""
+		m.err = msg.err
+		outputContent := msg.output
 		if msg.err != nil {
-			outputContent = fmt.Sprintf("Error: %v\n\nOutput:\n%s", msg.err, msg.output)
-		} else {
-			outputContent = fmt.Sprintf("Success!\n\n%s", msg.output)
+			outputContent = fmt.Sprintf("Error: %v\n\n%s", msg.err, msg.output)
 		}
-		m.output = outputContent
+		// Clean up ANSI codes if needed, though viewport handles most
 		m.viewport.SetContent(outputContent)
 		return m, nil
 
@@ -232,53 +273,89 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		m.viewport.Width = msg.Width
-		m.viewport.Height = msg.Height - 10 // Leave room for header/footer
+		m.viewport.Width = msg.Width - 4
+		m.viewport.Height = msg.Height - 8 
 	}
 
 	return m, nil
 }
 
-func (m model) View() string {
-	if m.state == viewRunning {
-		return fmt.Sprintf("\n %s Running %s...\n\n", m.spinner.View(), m.items[m.cursor].title)
-	}
+// --- View ---
 
-	if m.state == viewOutput {
-		return fmt.Sprintf(
-			"%s\n\n%s\n\n(Press q to quit, esc for menu)",
-			titleStyle.Render("Command Result"),
+func (m model) View() string {
+	// Header
+	header := lipgloss.JoinHorizontal(lipgloss.Left,
+		headerStyle.Render("Graphite"),
+		subHeaderStyle.Render("/ Speedrun"),
+	)
+
+	var content string
+
+	switch m.state {
+	case viewMenu:
+		var listItems []string
+		for i, item := range m.items {
+			title := item.title
+			desc := item.desc
+			
+			// Visual selection logic
+			if m.cursor == i {
+				line := lipgloss.JoinHorizontal(lipgloss.Left,
+					selectedItemStyle.Render(title),
+					descStyle.Render(desc),
+				)
+				listItems = append(listItems, line)
+			} else {
+				line := lipgloss.JoinHorizontal(lipgloss.Left,
+					itemStyle.Render(title),
+					descStyle.Render(desc),
+				)
+				listItems = append(listItems, line)
+			}
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, listItems...)
+		content = lipgloss.JoinVertical(lipgloss.Left, 
+			listTitleStyle.Render("Select an action:"),
+			content,
+		)
+
+	case viewInput:
+		title := m.items[m.cursor].title
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			inputTitleStyle.Render(fmt.Sprintf("%s > Input", title)),
+			inputBoxStyle.Render(m.textInput.View()),
+			"\n"+subHeaderStyle.Render("Press Enter to confirm • Esc to cancel"),
+		)
+
+	case viewRunning:
+		content = lipgloss.NewStyle().Margin(2, 0).Render(
+			fmt.Sprintf("%s Running %s...", m.spinner.View(), m.items[m.cursor].title),
+		)
+
+	case viewOutput:
+		status := statusSuccessStyle.Render("● Success")
+		if m.err != nil {
+			status = statusErrorStyle.Render("● Error")
+		}
+		
+		topBar := lipgloss.JoinHorizontal(lipgloss.Left,
+			status,
+			subHeaderStyle.Render(" • Press q to close"),
+		)
+
+		content = lipgloss.JoinVertical(lipgloss.Left,
+			topBar,
 			m.viewport.View(),
 		)
 	}
 
-	if m.state == viewInput {
-		return fmt.Sprintf(
-			"Enter commit message/branch name:\n\n%s\n\n(Esc to cancel)",
-			m.textInput.View(),
-		)
-	}
-
-	// Menu View
-	s := titleStyle.Render("Graphite Speedrun TUI") + "\n\n"
-
-	for i, item := range m.items {
-		cursor := "  "
-		lineStyle := itemStyle
-		if m.cursor == i {
-			cursor = "> "
-			lineStyle = selectedItemStyle
-		}
-
-		s += fmt.Sprintf("%s%s\n  %s\n\n", 
-			lineStyle.Render(cursor+item.title), 
-			commandStyle.Render(" "+item.command),
-			shortcutStyle.Render(item.desc),
-		)
-	}
-
-	s += "\n(j/k to navigate • enter to select • q to quit)\n"
-	return s
+	return docStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			"\n",
+			content,
+		),
+	)
 }
 
 func main() {

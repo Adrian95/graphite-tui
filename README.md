@@ -1,21 +1,26 @@
 # Graphite TUI Speedrun
 
-A simple, fast TUI for the [Graphite](https://graphite.dev) workflow, written in Go.
-Designed to help you speedrun your PRs with the "Solo Speedrun" workflow.
+<p align="center">
+  <img src="https://graphite.dev/favicon.ico" width="50" height="50" alt="Graphite Logo">
+</p>
 
-## Features
+A **Vercel-inspired**, beautiful TUI for the [Graphite](https://graphite.dev) workflow.
+Designed for the "Solo Speedrun" workflow, built with Go, Bubble Tea, and Lipgloss.
 
-- **Start**: Create branch & commit (`gt c -am`)
-- **Preview**: Push & Open PR (`gt s`)
-- **Fix**: Amend changes (`gt m -a`)
-- **Done**: Merge & Cleanup (`gt merge && gt sync`)
-- **Rescue Kit**: Fix ghost branches, fold stacks, and undo commands.
+## ✨ Features
 
-## Installation
+- **Beautiful UI**: Minimalist, high-contrast aesthetics compatible with modern terminals (Ghostty, Alacritty, iTerm2).
+- **Speedrun Workflow**:
+  - **Start**: `gt c -am`
+  - **Preview**: `gt s`
+  - **Fix**: `gt m -a`
+  - **Done**: `gt merge && gt sync`
+- **Rescue Kit**: Built-in tools to fix ghost branches and undo mistakes.
+- **Fast**: Compiles to a single binary.
+
+## 🛠️ Installation
 
 ### From Source
-
-Requires Go 1.20+.
 
 ```bash
 git clone https://github.com/adrian/graphite-tui.git
@@ -23,25 +28,32 @@ cd graphite-tui
 go install
 ```
 
-Ensure your `$(go env GOPATH)/bin` is in your `$PATH`.
+Make sure your `$(go env GOPATH)/bin` is in your `$PATH`.
 
-## Usage
+## 🚀 Usage
 
-Run the tool from anywhere in your terminal:
+Run it from anywhere:
 
 ```bash
 graphite-tui
 ```
 
-(Or rename the binary to `gtt` for speed!)
-
 ### Keybindings
 
-- **Up/Down (j/k)**: Navigate menu
-- **Enter**: Select action
-- **Esc**: Go back / Cancel
-- **q**: Quit
+| Key | Action |
+| :--- | :--- |
+| **j / k** | Navigate Menu |
+| **Enter** | Select / Confirm |
+| **Esc** | Back / Cancel |
+| **q** | Quit |
+
+## 🎨 Design
+
+The interface is designed to be clean and focused:
+- **Dark Mode First**: Optimized for dark terminal themes.
+- **Visual Feedback**: Clear status indicators for success/failure.
+- **Focus**: Distraction-free input for commit messages.
 
 ## Prerequisites
 
-- [Graphite CLI](https://graphite.dev/docs/cli/installation) (`gt`) must be installed and authenticated.
+- [Graphite CLI](https://graphite.dev/docs/cli/installation) (`gt`)

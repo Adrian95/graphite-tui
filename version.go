@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	currentVersion = "v1.7.2"
+	currentVersion = "v1.7.3"
 	repoOwner      = "Adrian95"
 	repoName       = "graphite-tui"
 	githubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"
@@ -80,22 +80,43 @@ func checkForUpdates() tea.Cmd {
 // performUpdate updates the tool to the latest version
 func performUpdate() tea.Cmd {
 	return func() tea.Msg {
-		// Use go install to update
-		installPath := fmt.Sprintf("github.com/%s/%s@latest", repoOwner, repoName)
-		cmd := exec.Command("go", "install", installPath)
-
-		output, err := cmd.CombinedOutput()
+		// Check if Go is installed
+		goPath, err := exec.LookPath("go")
 		if err != nil {
 			return updateCompleteMsg{
 				success: false,
 				err:     err,
-				message: string(output),
+				message: `Go is not installed!
+
+To install graphite-tui, you need Go first:
+
+  1. Install Go: https://go.dev/dl/
+  2. Restart your terminal
+  3. Run: go install github.com/Adrian95/graphite-tui@latest
+  4. Make sure ~/go/bin is in your PATH`,
+			}
+		}
+
+		// Use go install to update
+		installPath := fmt.Sprintf("github.com/%s/%s@latest", repoOwner, repoName)
+		cmd := exec.Command(goPath, "install", installPath)
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			errMsg := string(output)
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			return updateCompleteMsg{
+				success: false,
+				err:     err,
+				message: fmt.Sprintf("Update failed: %s\n\nTry manually:\n  go install %s", errMsg, installPath),
 			}
 		}
 
 		return updateCompleteMsg{
 			success: true,
-			message: "Update complete! Please restart the application.",
+			message: "Update complete! Please restart graphite-tui to use the new version.",
 		}
 	}
 }

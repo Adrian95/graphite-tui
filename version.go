@@ -149,46 +149,41 @@ To install graphite-tui, you need Go first:
 			targetBinary = realTarget
 		}
 
-		// 5. If running binary != installed binary, replace the running one
-		if currentExe != targetBinary {
-			// Read the new binary
-			input, err := os.ReadFile(targetBinary)
-			if err != nil {
-				return updateCompleteMsg{
-					success: true,
-					message: fmt.Sprintf("Updated globally to %s\n(Could not read new binary to replace current execution)", targetBinary),
-				}
-			}
+		// 5. Always copy the new binary to the current location
+		// This handles both the case where we are running a different binary AND
+		// the case where we are running the global binary but the update didn't overwrite it correctly in-place (e.g. windows/file lock issues, though we are on mac)
+		// But mostly, this ensures that IF we are running a local copy, it gets updated.
 
-			// Replace current binary
-			// We rename the old one first to allow overwriting on some OSs (like Windows, though less relevant here)
-			// On Unix, writing to a running executable file (ETXTBSY) fails, but renaming/unlinking works.
-			oldPath := currentExe + ".old"
-			_ = os.Rename(currentExe, oldPath) // Ignore error, best effort
-
-			// Write new file
-			err = os.WriteFile(currentExe, input, 0755)
-			if err != nil {
-				// Restore if write failed
-				_ = os.Rename(oldPath, currentExe)
-				return updateCompleteMsg{
-					success: true,
-					message: fmt.Sprintf("Updated globally to %s\n(Note: Could not replace currently running file at %s)", targetBinary, currentExe),
-				}
-			}
-
-			// Cleanup old file
-			_ = os.Remove(oldPath)
-
+		// Read the new binary
+		input, err := os.ReadFile(targetBinary)
+		if err != nil {
 			return updateCompleteMsg{
 				success: true,
-				message: fmt.Sprintf("Update complete! Replaced binary at %s\nPlease restart the application.", currentExe),
+				message: fmt.Sprintf("Updated globally to %s\n(Could not read new binary to replace current execution)", targetBinary),
 			}
 		}
 
+		// Replace current binary
+		oldPath := currentExe + ".old"
+		_ = os.Rename(currentExe, oldPath) // Ignore error, best effort
+
+		// Write new file
+		err = os.WriteFile(currentExe, input, 0755)
+		if err != nil {
+			// Restore if write failed
+			_ = os.Rename(oldPath, currentExe)
+			return updateCompleteMsg{
+				success: true,
+				message: fmt.Sprintf("Updated globally to %s\n(Note: Could not replace currently running file at %s)", targetBinary, currentExe),
+			}
+		}
+
+		// Cleanup old file
+		_ = os.Remove(oldPath)
+
 		return updateCompleteMsg{
 			success: true,
-			message: "Update complete! Please restart graphite-tui to use the new version.",
+			message: fmt.Sprintf("Update complete! Replaced binary at %s\nPlease restart the application.", currentExe),
 		}
 	}
 }

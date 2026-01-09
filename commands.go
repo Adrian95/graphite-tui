@@ -160,7 +160,7 @@ func executeSubmit(skipHooks bool) tea.Cmd {
 
 		output := stdout.String()
 		if output == "" {
-			output = "Changes pushed to GitHub!"
+			output = "Submitted for review!"
 		}
 
 		return cmdFinishedMsg{
@@ -298,13 +298,13 @@ func checkGitStatus() tea.Msg {
 	} else if len(status.changedFiles) > 0 {
 		status.suggestion = "suggestion: You have unsaved changes! Press [s] to save as NEW work, or [f] to add to your LAST save."
 	} else if status.ahead > 0 {
-		status.suggestion = "suggestion: Your work is ready to share! Press [p] to push to GitHub and open a PR."
+		status.suggestion = "suggestion: Your work is ready to share! Press [p] to submit for review."
 	} else if status.behind > 0 {
 		status.suggestion = "suggestion: Your team made updates. Press [y] to sync and get the latest changes."
 	} else if status.onMain {
 		status.suggestion = "suggestion: You're on main. Press [s] to start working on something new!"
 	} else {
-		status.suggestion = "suggestion: All caught up! Press [s] to add more work, or [d] when your PR is approved."
+		status.suggestion = "suggestion: All caught up! Press [s] to add more work, or [d] when approved."
 	}
 
 	return status
@@ -370,8 +370,8 @@ func getMenuItems() []menuItem {
 		},
 		{
 			title:   "Share",
-			desc:    "Push to GitHub & Open PR",
-			guide:   "Ready to show your work? This uploads to GitHub and opens a Pull Request for review.",
+			desc:    "Submit for review",
+			guide:   "Ready to show your work? This submits your changes for review.",
 			command: "gt submit --no-interactive",
 			key:     "p",
 		},

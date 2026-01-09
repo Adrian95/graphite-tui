@@ -353,7 +353,7 @@ func renderHelp() string {
 			"Quick Actions",
 			[]string{
 				"[s] Start   - Create new branch & commit (wizard)",
-				"[p] Share   - Push to GitHub & open PR",
+				"[p] Share   - Submit for review",
 				"[f] Fix     - Amend current commit",
 				"[y] Sync    - Pull latest changes",
 				"[d] Done    - Merge stack & cleanup",
@@ -479,7 +479,7 @@ func renderPostCommit(commitMsg string) string {
 	content = append(content, "")
 	content = append(content, panelTitleStyle.Render("What's next?"))
 	content = append(content, "")
-	content = append(content, shortcutKeyStyle.Render("[y]")+" "+lipgloss.NewStyle().Bold(true).Render("Share it!")+" - Push to GitHub and open a PR")
+	content = append(content, shortcutKeyStyle.Render("[y]")+" "+lipgloss.NewStyle().Bold(true).Render("Share it!")+" - Submit for review")
 	content = append(content, shortcutKeyStyle.Render("[n]")+" "+subtitleStyle.Render("Not yet")+" - Keep working, share later")
 	content = append(content, shortcutKeyStyle.Render("[f]")+" "+subtitleStyle.Render("Oops!")+" - Made a mistake? Fix it first")
 	content = append(content, "")

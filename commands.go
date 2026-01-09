@@ -142,6 +142,36 @@ func executeCommit(msg string, skipHooks bool) tea.Cmd {
 	})
 }
 
+// executeSubmit pushes changes and creates/updates PR with output capture
+func executeSubmit(skipHooks bool) tea.Cmd {
+	return func() tea.Msg {
+		args := []string{"submit", "--no-interactive"}
+		if skipHooks {
+			args = append(args, "--no-verify")
+		}
+		cmd := exec.Command("gt", args...)
+		cmd.Env = getNonInteractiveEnv()
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+
+		output := stdout.String()
+		if output == "" {
+			output = "Changes pushed to GitHub!"
+		}
+
+		return cmdFinishedMsg{
+			output:  output,
+			stderr:  stderr.String(),
+			err:     err,
+			command: "gt submit",
+		}
+	}
+}
+
 // executeCheckout switches to a different branch using direct gt command (no shell injection)
 func executeCheckout(branch string) tea.Cmd {
 	return func() tea.Msg {
@@ -320,9 +350,9 @@ func getMenuItems() []menuItem {
 			key:     "s",
 		},
 		{
-			title:   "Preview",
-			desc:    "Push & Open PR",
-			guide:   "Uploads your changes to GitHub and opens a Pull Request for others to review.",
+			title:   "Share",
+			desc:    "Push to GitHub & Open PR",
+			guide:   "Ready to show your work? This uploads to GitHub and opens a Pull Request for review.",
 			command: "gt submit --no-interactive",
 			key:     "p",
 		},

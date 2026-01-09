@@ -29,7 +29,8 @@ const (
 	viewStack
 	viewHelp
 	viewUpdate
-	viewStartup // NEW: First-run prompt
+	viewStartup    // NEW: First-run prompt
+	viewPostCommit // NEW: Post-commit prompt to share/push
 )
 
 // --- Stack Item ---
@@ -94,6 +95,10 @@ type model struct {
 
 	// Ghost fix mode (for input view)
 	isGhostFix bool
+
+	// Post-commit flow
+	justCommitted   bool
+	lastCommitMsg   string
 
 	// Version state
 	latestVersion   string
@@ -189,6 +194,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case viewUpdate:
 			return m.handleUpdateKeys(key)
 
+		case viewPostCommit:
+			return m.handlePostCommitKeys(key)
+
 		case viewOutput:
 			if key == "esc" || key == "enter" || key == "q" {
 				m.state = viewDashboard
@@ -222,7 +230,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Command Finished ---
 	case cmdFinishedMsg:
-		m.state = viewOutput
 		m.err = msg.err
 		m.command = msg.command
 
@@ -232,8 +239,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.output == "" {
 				m.output = msg.output
 			}
+			m.state = viewOutput
+			m.justCommitted = false // Reset on error
 		} else {
 			m.output = msg.output
+			// If we just committed successfully, show post-commit prompt
+			if m.justCommitted {
+				m.state = viewPostCommit
+			} else {
+				m.state = viewOutput
+			}
 		}
 
 		m.viewport.SetContent(m.output)
@@ -284,8 +299,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Ticker ---
 	case tickMsg:
-		// Auto-refresh status
-		cmds = append(cmds, RefreshNow())
+		// Auto-refresh status (skip during command execution to avoid race conditions)
+		if m.state != viewRunning {
+			cmds = append(cmds, RefreshNow())
+		}
 		cmds = append(cmds, tickEvery(3*time.Second))
 
 	// --- Spinner ---
@@ -321,9 +338,9 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		m.wizardError = "" // Clear any previous validation errors
 		return m, nil
 
-	case "p": // Preview
+	case "p": // Share (push to GitHub & open PR)
 		m.state = viewRunning
-		return m, executeInteractive("gt submit --no-interactive", "", m.skipHooks)
+		return m, executeSubmit(m.skipHooks)
 
 	case "f": // Fix
 		m.state = viewRunning
@@ -533,6 +550,10 @@ func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.
 		}
 		msgStr += fmt.Sprintf(": %s", m.wizardSummary)
 
+		// Track that we're committing for post-commit flow
+		m.justCommitted = true
+		m.lastCommitMsg = msgStr
+
 		m.state = viewRunning
 		return m, executeCommit(msgStr, m.skipHooks)
 	}
@@ -588,6 +609,27 @@ func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 		// Confirm uninstall
 		m.state = viewRunning
 		return m, performUninstall()
+	}
+
+	return m, nil
+}
+
+func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "enter": // Yes, share it!
+		m.justCommitted = false
+		m.state = viewRunning
+		return m, executeSubmit(m.skipHooks)
+
+	case "n", "esc": // No, go back to dashboard
+		m.justCommitted = false
+		m.state = viewDashboard
+		return m, RefreshNow()
+
+	case "f": // Fix - amend the commit
+		m.justCommitted = false
+		m.state = viewRunning
+		return m, executeInteractive("gt modify -a --no-interactive --no-edit", "", m.skipHooks)
 	}
 
 	return m, nil
@@ -723,6 +765,9 @@ func (m model) View() string {
 
 	case viewUpdate:
 		content = renderUpdateView(currentVersion, m.latestVersion, m.checkingUpdate)
+
+	case viewPostCommit:
+		content = renderPostCommit(m.lastCommitMsg)
 	}
 
 	// Handle empty branch on first load

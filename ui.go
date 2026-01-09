@@ -233,7 +233,7 @@ func renderShortcutsBarWithInit(skipHooks bool, gtInitialized bool) string {
 	}{
 		{"i", "Init"},
 		{"s", "Start"},
-		{"p", "Preview"},
+		{"p", "Share"},
 		{"f", "Fix"},
 		{"y", "Sync"},
 		{"d", "Done"},
@@ -353,7 +353,7 @@ func renderHelp() string {
 			"Quick Actions",
 			[]string{
 				"[s] Start   - Create new branch & commit (wizard)",
-				"[p] Preview - Push changes & open PR",
+				"[p] Share   - Push to GitHub & open PR",
 				"[f] Fix     - Amend current commit",
 				"[y] Sync    - Pull latest changes",
 				"[d] Done    - Merge stack & cleanup",
@@ -467,6 +467,25 @@ func renderSuccess(output string, command string) string {
 	content = append(content, subtitleStyle.Render("Press Esc to continue"))
 
 	return panelStyle.Width(70).Render(lipgloss.JoinVertical(lipgloss.Left, content...))
+}
+
+func renderPostCommit(commitMsg string) string {
+	var content []string
+
+	content = append(content, successStyle.Render("● Saved!"))
+	content = append(content, "")
+	content = append(content, "Your changes have been committed:")
+	content = append(content, branchStyle.Render("  "+commitMsg))
+	content = append(content, "")
+	content = append(content, panelTitleStyle.Render("What's next?"))
+	content = append(content, "")
+	content = append(content, shortcutKeyStyle.Render("[y]")+" "+lipgloss.NewStyle().Bold(true).Render("Share it!")+" - Push to GitHub and open a PR")
+	content = append(content, shortcutKeyStyle.Render("[n]")+" "+subtitleStyle.Render("Not yet")+" - Keep working, share later")
+	content = append(content, shortcutKeyStyle.Render("[f]")+" "+subtitleStyle.Render("Oops!")+" - Made a mistake? Fix it first")
+	content = append(content, "")
+	content = append(content, subtitleStyle.Render("Press Enter or 'y' to share • Esc or 'n' to continue working"))
+
+	return panelStyle.Width(65).Render(lipgloss.JoinVertical(lipgloss.Left, content...))
 }
 
 func renderUpdateView(currentVersion, latestVersion string, checking bool) string {

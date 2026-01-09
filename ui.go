@@ -3,516 +3,547 @@ package main
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 )
 
-// --- Theme & Colors ---
+// --- Theme & Aesthetics (Vercel x Ghostty x Starship) ---
 
 const (
-	colorBlack     = "#000000"
-	colorWhite     = "#EDEDED"
-	colorGray      = "#666666"
-	colorLightGray = "#999999"
-	colorDarkGray  = "#333333"
-	colorBlue      = "#0070F3"
-	colorPurple    = "#7928CA"
-	colorRed       = "#FF4500"
-	colorGreen     = "#00C64F"
-	colorYellow    = "#F5A623"
-	colorCyan      = "#00D4FF"
+	// Palette
+	colorBg        = "#000000" // Pure Black (OLED/Vercel)
+	colorFg        = "#EDEDED" // Off-white text
+	colorSub       = "#666666" // Dark Gray for subtitles
+	colorBorder    = "#333333" // Subtle borders
+	colorAccent    = "#0070F3" // Vercel Blue (Primary)
+	colorSuccess   = "#50E3C2" // Teal/Green (Success/Added)
+	colorWarning   = "#F5A623" // Orange (Modified/Warning)
+	colorError     = "#FF0080" // Hot Pink (Deleted/Error/Ghost)
+	colorHighlight = "#1A1A1A" // Dark highlight for active items
 )
 
 // --- Styles ---
 
 var (
 	// Layout
-	docStyle = lipgloss.NewStyle().Margin(1, 2)
+	docStyle = lipgloss.NewStyle().
+			Margin(1, 2). // Add some breathing room
+			Background(lipgloss.Color(colorBg)).
+			Foreground(lipgloss.Color(colorFg))
 
-	// Header
-	headerStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorWhite)).
-			Bold(true)
+	// Layout Blocks
+	sidebarStyle = lipgloss.NewStyle().
+			Width(25).
+			PaddingRight(2).
+			Border(lipgloss.NormalBorder(), false, true, false, false). // Right border only
+			BorderForeground(lipgloss.Color(colorBorder))
 
-	subtitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray))
+	mainStageStyle = lipgloss.NewStyle().
+			PaddingLeft(2).
+			Width(60) // Will be dynamic in Resize
 
-	versionStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			Italic(true)
-
-	// Dashboard panels
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorDarkGray)).
-			Padding(0, 1)
-
-	panelTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorBlue)).
-			Bold(true)
-
-	// Branch info
-	branchStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorCyan)).
-			Bold(true)
-
-	aheadStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorYellow))
-
-	// File status
-	fileModifiedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorYellow))
-
-	fileAddedStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGreen))
-
-	fileDeletedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorRed))
-
-	fileUntrackedStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorGray))
-
-	// Shortcuts bar
-	shortcutKeyStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorBlue)).
-				Bold(true)
-
-	shortcutLabelStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorGray))
-
-	// Menu items
-	itemStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			PaddingLeft(2)
-
-	selectedItemStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(colorWhite)).
-				Bold(true).
-				BorderLeft(true).
-				BorderStyle(lipgloss.ThickBorder()).
-				BorderForeground(lipgloss.Color(colorBlue)).
-				PaddingLeft(1)
-
-	descStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorGray)).
-			Italic(true).
-			MarginLeft(2)
-
-	// Guide/tip box
-	guideStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorYellow)).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorDarkGray))
-
-	copilotStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorBlue)).
-			Padding(0, 1).
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorDarkGray))
-
-	// Input
-	inputTitleStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color(colorBlue)).
+	// Typography
+	titleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorFg)).
 			Bold(true).
 			MarginBottom(1)
 
+	subtitleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorSub)).
+			Italic(true)
+
+	// Navigation / Menu
+	menuItemStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorSub)).
+			PaddingLeft(1).
+			MarginBottom(0)
+
+	menuSelectedStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorAccent)).
+				Background(lipgloss.Color(colorHighlight)).
+				Bold(true).
+				BorderLeft(true).
+				BorderStyle(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color(colorAccent)).
+				PaddingLeft(1)
+
+	// Branch / Status Badges
+	branchPillStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorBg)).
+			Background(lipgloss.Color(colorFg)).
+			Bold(true).
+			Padding(0, 1).
+			MarginRight(1)
+
+	statusAheadStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorBg)).
+				Background(lipgloss.Color(colorSuccess)).
+				Bold(true).
+				Padding(0, 1)
+
+	statusBehindStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorBg)).
+				Background(lipgloss.Color(colorError)).
+				Bold(true).
+				Padding(0, 1)
+
+	// Files
+	fileAddedStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess))
+	fileModifiedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning))
+	fileDeletedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorError))
+	fileUntrackedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSub))
+
+	// Wizard / Input
+	wizardQuestionStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorFg)).
+				Bold(true).
+				PaddingBottom(1)
+
 	inputBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(colorGray)).
+			BorderForeground(lipgloss.Color(colorAccent)).
 			Padding(0, 1).
-			Width(60)
+			Width(50)
 
-	// Status indicators
-	successStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
-	errorStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(colorRed))
-	warningStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorYellow))
+	// Output Window
+	outputWindowStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color(colorBorder)).
+				Padding(1)
 
-	// Toggles
-	toggleOnStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGreen))
-	toggleOffStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorGray))
+	// Cards (Copilot/Hints)
+	cardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color(colorBorder)).
+			Padding(1).
+			MarginTop(1)
+
+	tipPrefixStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAccent)).
+			Bold(true).
+			MarginRight(1)
 )
 
-// --- View Helpers ---
+// --- View Rendering ---
 
-func renderHeader(version string, lastRefresh time.Time, updateAvailable string) string {
-	title := headerStyle.Render("Graphite")
-	subtitle := subtitleStyle.Render(" / Speedrun")
-	ver := versionStyle.Render(" " + version)
-
-	header := lipgloss.JoinHorizontal(lipgloss.Left, title, subtitle, ver)
-
-	// Add refresh indicator
-	if !lastRefresh.IsZero() {
-		ago := time.Since(lastRefresh).Round(time.Second)
-		refresh := subtitleStyle.Render(fmt.Sprintf("  ↻ %s ago", ago))
-		header = lipgloss.JoinHorizontal(lipgloss.Left, header, refresh)
+// View is the main render loop
+func (m model) View() string {
+	// 1. Calculate Layout Dimensions
+	// Assuming m.width is set. If not, default to 80.
+	w := m.width
+	if w == 0 {
+		w = 100
 	}
 
-	// Add update notification
-	if updateAvailable != "" {
-		update := warningStyle.Render(fmt.Sprintf("  ⬆ %s available", updateAvailable))
-		header = lipgloss.JoinHorizontal(lipgloss.Left, header, update)
+	sidebarWidth := 25
+	mainWidth := w - sidebarWidth - 6 // -6 for margins/borders
+	if mainWidth < 40 {
+		mainWidth = 40
 	}
 
-	return header
+	sidebarStyle = sidebarStyle.Width(sidebarWidth)
+	mainStageStyle = mainStageStyle.Width(mainWidth)
+
+	// 2. Build Sidebar (Always present)
+	sidebar := renderSidebar(m)
+
+	// 3. Build Main Stage (Context dependent)
+	var mainStage string
+	switch m.state {
+	case viewDashboard, viewMenu:
+		mainStage = renderDashboardMain(m, mainWidth)
+	case viewWizardType, viewWizardScope, viewWizardSummary:
+		mainStage = renderWizardStage(m)
+	case viewInput:
+		mainStage = renderInputStage(m)
+	case viewStack:
+		mainStage = renderStackStage(m)
+	case viewRunning, viewOutput, viewPostCommit:
+		mainStage = renderOutputStage(m)
+	case viewHelp:
+		mainStage = renderHelpStage()
+	case viewUpdate:
+		mainStage = renderUpdateStage(m)
+	default:
+		mainStage = renderDashboardMain(m, mainWidth)
+	}
+
+	// 4. Combine
+	content := lipgloss.JoinHorizontal(lipgloss.Top,
+		sidebar,
+		mainStage,
+	)
+
+	return docStyle.Render(content)
 }
 
-func renderBranchInfo(branch string, stack []string, ahead int, behind int) string {
-	var parts []string
+// --- Sidebar Component ---
 
-	// Branch name
-	branchLine := "📍 " + branchStyle.Render(branch)
+func renderSidebar(m model) string {
+	// Header: Repo Info
+	repoName := "Graphite TUI" // Could fetch actual repo name if we wanted
+	header := lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Bold(true).Render(repoName),
+		subtitleStyle.Render(currentVersion),
+	)
+
+	// Status: Branch Info
+	branchInfo := renderSidebarBranchInfo(m.branch, m.ahead, m.behind)
+
+	// Navigation Menu
+	var menuItems []string
+	menuItems = append(menuItems, subtitleStyle.Render("ACTIONS"))
+
+	for i, item := range m.items {
+		// Styling
+		isSelected := m.cursor == i
+		label := fmt.Sprintf("%s %s", item.key, item.title)
+
+		// Use symbols for extra flair
+		symbol := "  "
+		if isSelected {
+			symbol = "❯ " // Ghostty/Starship style arrow
+			menuItems = append(menuItems, menuSelectedStyle.Render(symbol+label))
+		} else {
+			menuItems = append(menuItems, menuItemStyle.Render(symbol+label))
+		}
+	}
+
+	// Settings Toggle
+	hooksState := "ON"
+	if m.skipHooks {
+		hooksState = "OFF"
+	}
+	settings := lipgloss.JoinVertical(lipgloss.Left,
+		subtitleStyle.Render("────"),
+		subtitleStyle.Render(fmt.Sprintf("[h] Hooks: %s", hooksState)),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"\n",
+		branchInfo,
+		"\n",
+		lipgloss.JoinVertical(lipgloss.Left, menuItems...),
+		"\n\n",
+		settings,
+	)
+}
+
+func renderSidebarBranchInfo(branch string, ahead, behind int) string {
+	// Branch Name
+	if branch == "" {
+		branch = "loading..."
+	}
+
+	// Truncate branch if too long
+	if len(branch) > 18 {
+		branch = branch[:15] + "..."
+	}
+
+	branchRow := lipgloss.JoinHorizontal(lipgloss.Left,
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render(" "), // Git Branch Icon
+		branch,
+	)
+
+	// Status Pills
+	var statusPills []string
 	if ahead > 0 {
-		branchLine += aheadStyle.Render(fmt.Sprintf(" (%d ahead)", ahead))
+		statusPills = append(statusPills, statusAheadStyle.Render(fmt.Sprintf("↑%d", ahead)))
 	}
 	if behind > 0 {
-		branchLine += warningStyle.Render(fmt.Sprintf(" (%d behind)", behind))
-	}
-	parts = append(parts, branchLine)
-
-	// Stack visualization
-	if len(stack) > 0 {
-		stackStr := "📚 " + subtitleStyle.Render(strings.Join(stack, " → "))
-		parts = append(parts, stackStr)
+		statusPills = append(statusPills, statusBehindStyle.Render(fmt.Sprintf("↓%d", behind)))
 	}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, parts...)
-	return panelStyle.Width(60).Render(content)
-}
-
-func renderChangedFiles(files []ChangedFile) string {
-	if len(files) == 0 {
-		return panelStyle.Width(60).Render(
-			subtitleStyle.Render("No changes detected"),
-		)
+	content := []string{branchRow}
+	if len(statusPills) > 0 {
+		content = append(content, lipgloss.JoinHorizontal(lipgloss.Left, statusPills...))
 	}
-
-	title := panelTitleStyle.Render(fmt.Sprintf("Changed Files (%d)", len(files)))
-
-	var fileLines []string
-	maxFiles := 8 // Limit display
-	for i, f := range files {
-		if i >= maxFiles {
-			remaining := len(files) - maxFiles
-			fileLines = append(fileLines, subtitleStyle.Render(fmt.Sprintf("  ... and %d more", remaining)))
-			break
-		}
-
-		var statusStyle lipgloss.Style
-		switch f.Status {
-		case "M":
-			statusStyle = fileModifiedStyle
-		case "A":
-			statusStyle = fileAddedStyle
-		case "D":
-			statusStyle = fileDeletedStyle
-		default:
-			statusStyle = fileUntrackedStyle
-		}
-
-		line := fmt.Sprintf("  %s  %s", statusStyle.Render(f.Status), f.Path)
-		fileLines = append(fileLines, line)
-	}
-
-	content := lipgloss.JoinVertical(lipgloss.Left,
-		append([]string{title}, fileLines...)...,
-	)
-	return panelStyle.Width(60).Render(content)
-}
-
-func renderShortcutsBar(skipHooks bool) string {
-	return renderShortcutsBarWithInit(skipHooks, true)
-}
-
-func renderShortcutsBarWithInit(skipHooks bool, gtInitialized bool) string {
-	shortcuts := []struct {
-		key   string
-		label string
-	}{
-		{"i", "Init"},
-		{"s", "Start"},
-		{"p", "Share"},
-		{"f", "Fix"},
-		{"y", "Sync"},
-		{"d", "Done"},
-		{"g", "GPS"},
-		{"x", "Rescue"},
-		{"m", "Menu"},
-		{"?", "Help"},
-		{"q", "Quit"},
-	}
-
-	// If already initialized, skip showing Init
-	if gtInitialized {
-		shortcuts = shortcuts[1:]
-	}
-
-	var parts []string
-	for _, sc := range shortcuts {
-		key := shortcutKeyStyle.Render("[" + sc.key + "]")
-		label := shortcutLabelStyle.Render(sc.label)
-		parts = append(parts, key+" "+label)
-	}
-
-	bar := strings.Join(parts, "  ")
-
-	// Add hooks status
-	hooksStatus := toggleOffStyle.Render("hooks:on")
-	if skipHooks {
-		hooksStatus = toggleOnStyle.Render("hooks:skip")
-	}
-	bar += "  " + shortcutKeyStyle.Render("[h]") + " " + hooksStatus
-
-	return bar
-}
-
-func renderCopilot(suggestion string, guide string) string {
-	if suggestion != "" && strings.HasPrefix(suggestion, "suggestion:") {
-		text := strings.TrimPrefix(suggestion, "suggestion: ")
-		title := lipgloss.NewStyle().Bold(true).Render("🤖 Co-Pilot: ")
-		return copilotStyle.Width(60).Render(title + text)
-	}
-
-	if guide != "" {
-		title := lipgloss.NewStyle().Bold(true).Render("💡 Tip: ")
-		return guideStyle.Width(60).Render(title + guide)
-	}
-
-	return ""
-}
-
-func renderMenuItem(title, desc string, selected bool) string {
-	if selected {
-		return lipgloss.JoinHorizontal(lipgloss.Left,
-			selectedItemStyle.Render(title),
-			descStyle.Render(desc),
-		)
-	}
-	return lipgloss.JoinHorizontal(lipgloss.Left,
-		itemStyle.Render(title),
-		descStyle.Render(desc),
-	)
-}
-
-func renderWizardTypes(types []commitType, selectedIdx int) string {
-	var lines []string
-	for i, t := range types {
-		prefix := "  "
-		style := itemStyle
-		if i == selectedIdx {
-			prefix = "> "
-			style = selectedItemStyle
-		}
-		lines = append(lines, style.Render(fmt.Sprintf("%s%s: %s", prefix, t.label, t.desc)))
-	}
-	return lipgloss.JoinVertical(lipgloss.Left,
-		inputTitleStyle.Render("Step 1: Select Commit Type"),
-		lipgloss.JoinVertical(lipgloss.Left, lines...),
-	)
-}
-
-func renderStackMap(items []stackItem, cursor int) string {
-	var lines []string
-	if len(items) == 0 {
-		lines = append(lines, itemStyle.Render("No stack found or empty."))
-	} else {
-		for i, s := range items {
-			prefix := "  "
-			indent := strings.Repeat("  ", s.level)
-			marker := " "
-			style := itemStyle
-
-			if s.current {
-				marker = "*"
-			}
-			if i == cursor {
-				prefix = "> "
-				style = selectedItemStyle
-			}
-
-			label := fmt.Sprintf("%s%s%s %s", prefix, indent, marker, s.name)
-			lines = append(lines, style.Render(label))
-		}
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		inputTitleStyle.Render("Stack Map (GPS)"),
-		lipgloss.JoinVertical(lipgloss.Left, lines...),
-		"\n"+subtitleStyle.Render("Enter to checkout • r to refresh • Esc back"),
-	)
-}
-
-func renderHelp() string {
-	sections := []struct {
-		title string
-		items []string
-	}{
-		{
-			"Quick Actions",
-			[]string{
-				"[s] Start   - Create new branch & commit (wizard)",
-				"[p] Share   - Submit for review",
-				"[f] Fix     - Amend current commit",
-				"[y] Sync    - Pull latest changes",
-				"[d] Done    - Merge stack & cleanup",
-				"[x] Rescue  - Save work from a stuck/merged branch",
-			},
-		},
-		{
-			"Navigation",
-			[]string{
-				"[g] GPS     - Visual stack map",
-				"[m] Menu    - Full menu view",
-				"[?] Help    - This screen",
-				"[q] Quit    - Exit application",
-			},
-		},
-		{
-			"Options",
-			[]string{
-				"[h] Toggle  - Skip git hooks (for speed)",
-				"[u] Update  - Check for updates",
-			},
-		},
-		{
-			"Concepts",
-			[]string{
-				"Stack   - A chain of branches building on each other",
-				"PR      - Pull Request, asks others to review your code",
-				"Commit  - A saved snapshot of your changes",
-				"Amend   - Update the last commit instead of making a new one",
-			},
-		},
-	}
-
-	var content []string
-	content = append(content, inputTitleStyle.Render("Help & Keyboard Shortcuts"))
-	content = append(content, "")
-
-	for _, section := range sections {
-		content = append(content, panelTitleStyle.Render(section.title))
-		for _, item := range section.items {
-			content = append(content, "  "+item)
-		}
-		content = append(content, "")
-	}
-
-	content = append(content, subtitleStyle.Render("Press Esc or ? to close"))
 
 	return lipgloss.JoinVertical(lipgloss.Left, content...)
 }
 
-func renderError(err error, output string, command string) string {
-	title := errorStyle.Render("● Command Failed")
+// --- Main Stage Components ---
 
-	var content []string
-	content = append(content, title)
-	content = append(content, "")
-
-	if command != "" {
-		content = append(content, subtitleStyle.Render("Command: ")+command)
+func renderDashboardMain(m model, width int) string {
+	// 1. Context Header
+	contextTitle := "Project Overview"
+	if len(m.changedFiles) > 0 {
+		contextTitle = "Unsaved Changes"
 	}
+	header := titleStyle.Render(contextTitle)
 
-	if err != nil {
-		content = append(content, "")
-		content = append(content, errorStyle.Render("Error: ")+err.Error())
-	}
-
-	if output != "" {
-		content = append(content, "")
-		content = append(content, subtitleStyle.Render("Output:"))
-		// Limit output lines
-		lines := strings.Split(output, "\n")
-		maxLines := 10
-		for i, line := range lines {
-			if i >= maxLines {
-				content = append(content, subtitleStyle.Render(fmt.Sprintf("... (%d more lines)", len(lines)-maxLines)))
-				break
+	// 2. File List or Empty State
+	var content string
+	if len(m.changedFiles) > 0 {
+		var files []string
+		for _, f := range m.changedFiles {
+			var icon, style string
+			// Nerd Font icons would go here, using ASCII/Unicode for now
+			switch f.Status {
+			case "M":
+				icon = "● "
+				style = fileModifiedStyle.Render(icon + f.Path)
+			case "A":
+				icon = "+ "
+				style = fileAddedStyle.Render(icon + f.Path)
+			case "D":
+				icon = "✖ "
+				style = fileDeletedStyle.Render(icon + f.Path)
+			default:
+				icon = "? "
+				style = fileUntrackedStyle.Render(icon + f.Path)
 			}
-			content = append(content, "  "+line)
+			files = append(files, style)
+		}
+		// Limit to 10 files to avoid overflow
+		if len(files) > 12 {
+			remaining := len(files) - 12
+			files = files[:12]
+			files = append(files, subtitleStyle.Render(fmt.Sprintf("...and %d more", remaining)))
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, files...)
+	} else {
+		// "All Clear" State
+		content = lipgloss.JoinVertical(lipgloss.Center,
+			"\n",
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSub)).Render("No changed files"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("Everything is clean ✨"),
+		)
+	}
+
+	// 3. Copilot / Guide Card (Prominent)
+	guideContent := ""
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		item := m.items[m.cursor]
+
+		// Contextual Tip
+		tip := m.suggestion
+		if tip != "" {
+			tip = strings.TrimPrefix(tip, "suggestion: ")
+		} else {
+			tip = item.guide
+		}
+
+		guideContent = cardStyle.Width(width - 4).Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				lipgloss.JoinHorizontal(lipgloss.Left,
+					tipPrefixStyle.Render("TIP"),
+					titleStyle.Render(item.title),
+				),
+				lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Render(tip),
+			),
+		)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		content,
+		"\n",
+		guideContent,
+	)
+}
+
+func renderWizardStage(m model) string {
+	// Clean, centered, "Typeform" style
+	var step, question, placeholder string
+
+	switch m.state {
+	case viewWizardType:
+		step = "Step 1 of 3"
+		question = "What kind of change is this?"
+		// Render types as a clean list
+		var types []string
+		for i, t := range m.commitTypes {
+			prefix := "  "
+			style := menuItemStyle
+			if i == m.wizardTypeIdx {
+				prefix = "❯ "
+				style = menuSelectedStyle
+			}
+			types = append(types, style.Render(fmt.Sprintf("%s%-10s %s", prefix, t.label, t.desc)))
+		}
+		return lipgloss.JoinVertical(lipgloss.Left,
+			subtitleStyle.Render(step),
+			wizardQuestionStyle.Render(question),
+			"\n",
+			lipgloss.JoinVertical(lipgloss.Left, types...),
+		)
+
+	case viewWizardScope:
+		step = "Step 2 of 3"
+		question = "What is the scope? (Optional)"
+		placeholder = "e.g. auth, api, ui"
+
+	case viewWizardSummary:
+		step = "Step 3 of 3"
+		question = "Describe the change"
+		placeholder = "e.g. add new login button"
+	}
+
+	// Input view
+	inputDisplay := inputBoxStyle.Render(m.textInput.View())
+	if m.wizardError != "" {
+		inputDisplay = lipgloss.JoinVertical(lipgloss.Left,
+			inputDisplay,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorError)).Render("⚠ "+m.wizardError),
+		)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		subtitleStyle.Render(step),
+		wizardQuestionStyle.Render(question),
+		subtitleStyle.Render(placeholder),
+		"\n",
+		inputDisplay,
+		"\n\n",
+		subtitleStyle.Render("Enter to confirm • Esc to back"),
+	)
+}
+
+func renderInputStage(m model) string {
+	title := "Input"
+	desc := "Enter value below"
+
+	if m.isGhostFix {
+		title = "👻 Rescue Mode (Ghost Fix)"
+		desc = "Working on a merged branch? Name a new branch to save your work:"
+	} else if m.cursor >= 0 && m.cursor < len(m.items) {
+		title = m.items[m.cursor].title
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorError)).Bold(true).Render(title),
+		subtitleStyle.Render(desc),
+		"\n",
+		inputBoxStyle.Render(m.textInput.View()),
+		"\n",
+		subtitleStyle.Render("Enter to confirm • Esc to cancel"),
+	)
+}
+
+func renderOutputStage(m model) string {
+	// Post-commit special success state
+	if m.state == viewPostCommit {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Bold(true).Render("✔ Changes Saved"),
+			"\n",
+			lipgloss.NewStyle().Background(lipgloss.Color(colorHighlight)).Padding(0, 1).Render(m.lastCommitMsg),
+			"\n",
+			titleStyle.Render("What's next?"),
+			menuSelectedStyle.Render("❯ [p] Share & Create PR"),
+			menuItemStyle.Render("  [n] Continue Working"),
+			menuItemStyle.Render("  [f] Fix (Amend)"),
+		)
+	}
+
+	// Normal Output/Running
+	var header string
+	if m.state == viewRunning {
+		header = lipgloss.JoinHorizontal(lipgloss.Left,
+			m.spinner.View(),
+			" Executing...",
+		)
+	} else {
+		// Finished
+		if m.err != nil {
+			header = lipgloss.NewStyle().Foreground(lipgloss.Color(colorError)).Bold(true).Render("✖ Command Failed")
+		} else {
+			header = lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Bold(true).Render("✔ Success")
 		}
 	}
 
-	content = append(content, "")
-	content = append(content, subtitleStyle.Render("Press Esc to continue"))
+	content := m.output
+	if content == "" && m.err != nil {
+		content = m.err.Error()
+	}
 
-	return panelStyle.Width(70).Render(lipgloss.JoinVertical(lipgloss.Left, content...))
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		subtitleStyle.Render(m.command),
+		"\n",
+		outputWindowStyle.Render(content),
+		"\n",
+		subtitleStyle.Render("Press Esc to return"),
+	)
 }
 
-func renderSuccess(output string, command string) string {
-	title := successStyle.Render("● Success")
+func renderStackStage(m model) string {
+	header := titleStyle.Render("Stack Map (GPS)")
 
-	var content []string
-	content = append(content, title)
+	if len(m.stackItems) == 0 {
+		return lipgloss.JoinVertical(lipgloss.Left,
+			header,
+			subtitleStyle.Render("No stack found."),
+		)
+	}
 
-	if output != "" && strings.TrimSpace(output) != "" {
-		content = append(content, "")
-		lines := strings.Split(strings.TrimSpace(output), "\n")
-		maxLines := 15
-		for i, line := range lines {
-			if i >= maxLines {
-				content = append(content, subtitleStyle.Render(fmt.Sprintf("... (%d more lines)", len(lines)-maxLines)))
-				break
-			}
-			content = append(content, line)
+	var lines []string
+	for i, s := range m.stackItems {
+		// Visual tree
+		indent := strings.Repeat("  ", s.level)
+		marker := "○"
+		if s.current {
+			marker = "●" // Current
 		}
-	} else {
-		content = append(content, "")
-		content = append(content, "Command completed successfully.")
+
+		label := fmt.Sprintf("%s%s %s", indent, marker, s.name)
+
+		style := menuItemStyle
+		if i == m.stackCursor {
+			style = menuSelectedStyle
+			label = fmt.Sprintf("%s%s %s", indent, "⦿", s.name)
+		}
+
+		lines = append(lines, style.Render(label))
 	}
 
-	content = append(content, "")
-	content = append(content, subtitleStyle.Render("Press Esc to continue"))
-
-	return panelStyle.Width(70).Render(lipgloss.JoinVertical(lipgloss.Left, content...))
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		lipgloss.JoinVertical(lipgloss.Left, lines...),
+		"\n",
+		subtitleStyle.Render("Enter to checkout • r to refresh"),
+	)
 }
 
-func renderPostCommit(commitMsg string) string {
-	var content []string
-
-	content = append(content, successStyle.Render("● Saved!"))
-	content = append(content, "")
-	content = append(content, "Your changes have been committed:")
-	content = append(content, branchStyle.Render("  "+commitMsg))
-	content = append(content, "")
-	content = append(content, panelTitleStyle.Render("What's next?"))
-	content = append(content, "")
-	content = append(content, shortcutKeyStyle.Render("[y]")+" "+lipgloss.NewStyle().Bold(true).Render("Share it!")+" - Submit for review")
-	content = append(content, shortcutKeyStyle.Render("[n]")+" "+subtitleStyle.Render("Not yet")+" - Keep working, share later")
-	content = append(content, shortcutKeyStyle.Render("[f]")+" "+subtitleStyle.Render("Oops!")+" - Made a mistake? Fix it first")
-	content = append(content, "")
-	content = append(content, subtitleStyle.Render("Press Enter or 'y' to share • Esc or 'n' to continue working"))
-
-	return panelStyle.Width(65).Render(lipgloss.JoinVertical(lipgloss.Left, content...))
+func renderHelpStage() string {
+	return lipgloss.JoinVertical(lipgloss.Left,
+		titleStyle.Render("Help & Shortcuts"),
+		"\n",
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render("General"),
+		"  i  Initialize Graphite",
+		"  s  Start (Commit)",
+		"  p  Share (Submit)",
+		"  f  Fix (Amend)",
+		"  y  Sync",
+		"  d  Done (Merge)",
+		"  g  Stack Map",
+		"\n",
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render("Navigation"),
+		"  ↑/↓  Move selection",
+		"  Enter Select",
+		"  Esc  Back/Cancel",
+	)
 }
 
-func renderUpdateView(currentVersion, latestVersion string, checking bool) string {
-	var content []string
-	content = append(content, inputTitleStyle.Render("Update Manager"))
-	content = append(content, "")
+func renderUpdateStage(m model) string {
+	content := []string{titleStyle.Render("Update Manager")}
 
-	content = append(content, "Current version: "+versionStyle.Render(currentVersion))
-
-	if checking {
-		content = append(content, "")
-		content = append(content, subtitleStyle.Render("Checking for updates..."))
-	} else if latestVersion != "" && latestVersion != currentVersion {
-		content = append(content, "Latest version:  "+successStyle.Render(latestVersion))
-		content = append(content, "")
-		content = append(content, warningStyle.Render("Update available!"))
-		content = append(content, "")
-		content = append(content, "[u] Update now")
-		content = append(content, "[x] Uninstall")
-		content = append(content, "[Esc] Back")
+	if m.checkingUpdate {
+		content = append(content, m.spinner.View()+" Checking for updates...")
+	} else if m.latestVersion != "" && isNewerVersion(currentVersion, m.latestVersion) {
+		content = append(content,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("New version available: "+m.latestVersion),
+			"\n",
+			menuSelectedStyle.Render("❯ [u] Update Now"),
+			menuItemStyle.Render("  [x] Uninstall"),
+		)
 	} else {
-		content = append(content, "")
-		content = append(content, successStyle.Render("You're up to date!"))
-		content = append(content, "")
-		content = append(content, "[x] Uninstall")
-		content = append(content, "[Esc] Back")
+		content = append(content,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("You are up to date!"),
+			subtitleStyle.Render(currentVersion),
+		)
 	}
 
-	return panelStyle.Width(50).Render(lipgloss.JoinVertical(lipgloss.Left, content...))
+	return lipgloss.JoinVertical(lipgloss.Left, content...)
 }

@@ -97,8 +97,8 @@ type model struct {
 	isGhostFix bool
 
 	// Post-commit flow
-	justCommitted   bool
-	lastCommitMsg   string
+	justCommitted bool
+	lastCommitMsg string
 
 	// Version state
 	latestVersion   string
@@ -116,12 +116,12 @@ func initialModel() model {
 
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color(colorBlue))
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#0070F3")) // Vercel Blue
 
 	vp := viewport.New(80, 20)
 	vp.Style = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color(colorGray)).
+		BorderForeground(lipgloss.Color("#444444")). // Dark Gray
 		Padding(0, 1)
 
 	return model{
@@ -139,9 +139,9 @@ func (m model) Init() tea.Cmd {
 	return tea.Batch(
 		textinput.Blink,
 		spinner.Tick,
-		RefreshNow(),                      // Initial status check
-		checkForUpdates(),                 // Check for updates
-		tickEvery(3*time.Second),          // Auto-refresh every 3s
+		RefreshNow(),             // Initial status check
+		checkForUpdates(),        // Check for updates
+		tickEvery(3*time.Second), // Auto-refresh every 3s
 	)
 }
 
@@ -633,161 +633,6 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
-}
-
-// --- View ---
-
-func (m model) View() string {
-	header := renderHeader(currentVersion, m.lastRefresh, m.updateAvailable)
-
-	var content string
-
-	switch m.state {
-
-	case viewDashboard:
-		// Branch info panel
-		branchPanel := renderBranchInfo(m.branch, m.stack, m.ahead, m.behind)
-
-		// Changed files panel
-		filesPanel := renderChangedFiles(m.changedFiles)
-
-		// Shortcuts bar
-		shortcuts := renderShortcutsBarWithInit(m.skipHooks, m.gtInitialized)
-
-		// Co-pilot / guide
-		guide := ""
-		if m.cursor >= 0 && m.cursor < len(m.items) {
-			guide = m.items[m.cursor].guide
-		}
-		copilot := renderCopilot(m.suggestion, guide)
-
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			branchPanel,
-			"",
-			filesPanel,
-			"",
-			shortcuts,
-			"",
-			copilot,
-		)
-
-	case viewMenu:
-		var listItems []string
-		for i, item := range m.items {
-			listItems = append(listItems, renderMenuItem(item.title, item.desc, m.cursor == i))
-		}
-
-		listContent := lipgloss.JoinVertical(lipgloss.Left, listItems...)
-
-		hooksStatus := "Hooks: ON"
-		hooksStyle := toggleOffStyle
-		if m.skipHooks {
-			hooksStatus = "Hooks: SKIPPED"
-			hooksStyle = toggleOnStyle
-		}
-
-		settingsBar := lipgloss.JoinHorizontal(lipgloss.Left,
-			subtitleStyle.Render("Press 'h' to toggle: "),
-			hooksStyle.Render(hooksStatus),
-		)
-
-		guide := ""
-		if m.cursor >= 0 && m.cursor < len(m.items) {
-			guide = m.items[m.cursor].guide
-		}
-		guideBox := renderCopilot(m.suggestion, guide)
-
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			panelTitleStyle.Render("Select an action:"),
-			"",
-			listContent,
-			"",
-			settingsBar,
-			"",
-			guideBox,
-			"",
-			subtitleStyle.Render("Press Esc to go back"),
-		)
-
-	case viewWizardType:
-		content = renderWizardTypes(m.commitTypes, m.wizardTypeIdx)
-
-	case viewWizardScope:
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			inputTitleStyle.Render("Step 2: Enter Scope (Optional)"),
-			subtitleStyle.Render("e.g. auth, ui, api"),
-			inputBoxStyle.Render(m.textInput.View()),
-		)
-
-	case viewWizardSummary:
-		summaryContent := []string{
-			inputTitleStyle.Render("Step 3: Enter Summary"),
-			subtitleStyle.Render("e.g. add new login button"),
-			inputBoxStyle.Render(m.textInput.View()),
-		}
-		if m.wizardError != "" {
-			summaryContent = append(summaryContent, errorStyle.Render("⚠ "+m.wizardError))
-		}
-		content = lipgloss.JoinVertical(lipgloss.Left, summaryContent...)
-
-	case viewStack:
-		content = renderStackMap(m.stackItems, m.stackCursor)
-
-	case viewInput:
-		var title string
-		if m.isGhostFix {
-			title = "Rescue (Ghost Fix)"
-		} else if m.cursor >= 0 && m.cursor < len(m.items) {
-			title = m.items[m.cursor].title
-		}
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			inputTitleStyle.Render(fmt.Sprintf("%s > Enter branch name", title)),
-			subtitleStyle.Render("This will save your work to a fresh branch"),
-			inputBoxStyle.Render(m.textInput.View()),
-			"",
-			subtitleStyle.Render("Press Enter to confirm • Esc to cancel"),
-		)
-
-	case viewRunning:
-		content = lipgloss.NewStyle().Margin(2, 0).Render(
-			fmt.Sprintf("%s Running...", m.spinner.View()),
-		)
-
-	case viewOutput:
-		if m.err != nil {
-			content = renderError(m.err, m.output, m.command)
-		} else {
-			content = renderSuccess(m.output, m.command)
-		}
-
-	case viewHelp:
-		content = renderHelp()
-
-	case viewUpdate:
-		content = renderUpdateView(currentVersion, m.latestVersion, m.checkingUpdate)
-
-	case viewPostCommit:
-		content = renderPostCommit(m.lastCommitMsg)
-	}
-
-	// Handle empty branch on first load
-	if m.branch == "" && m.state == viewDashboard {
-		content = lipgloss.JoinVertical(lipgloss.Left,
-			panelStyle.Width(50).Render(
-				subtitleStyle.Render("Loading git status..."),
-			),
-			"",
-			renderShortcutsBar(m.skipHooks),
-		)
-	}
-
-	return docStyle.Render(
-		lipgloss.JoinVertical(lipgloss.Left,
-			header,
-			"",
-			content,
-		),
-	)
 }
 
 // --- Main ---

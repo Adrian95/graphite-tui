@@ -7,18 +7,18 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// --- Theme & Aesthetics (Vercel x Ghostty x Starship) ---
+// --- Theme & Aesthetics (Vercel Black + Hot Pink) ---
 
 const (
-	// Palette
+	// Palette - Minimalist dark with hot pink accent
 	colorBg        = "#000000" // Pure Black (OLED/Vercel)
 	colorFg        = "#EDEDED" // Off-white text
 	colorSub       = "#666666" // Dark Gray for subtitles
 	colorBorder    = "#333333" // Subtle borders
-	colorAccent    = "#0070F3" // Vercel Blue (Primary)
+	colorAccent    = "#FF0080" // Hot Pink (Primary accent)
 	colorSuccess   = "#50E3C2" // Teal/Green (Success/Added)
 	colorWarning   = "#F5A623" // Orange (Modified/Warning)
-	colorError     = "#FF0080" // Hot Pink (Deleted/Error/Ghost)
+	colorError     = "#FF3366" // Bright red-pink for errors
 	colorHighlight = "#1A1A1A" // Dark highlight for active items
 )
 
@@ -122,6 +122,21 @@ var (
 			Foreground(lipgloss.Color(colorAccent)).
 			Bold(true).
 			MarginRight(1)
+
+	// Footer bar
+	footerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorSub)).
+			Border(lipgloss.NormalBorder(), true, false, false, false).
+			BorderForeground(lipgloss.Color(colorBorder)).
+			PaddingTop(0).
+			MarginTop(1)
+
+	footerKeyStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAccent)).
+			Bold(true)
+
+	footerLabelStyle = lipgloss.NewStyle().
+				Foreground(lipgloss.Color(colorSub))
 )
 
 // --- View Rendering ---
@@ -172,13 +187,42 @@ func (m model) View() string {
 		mainStage = renderDashboardMain(m, mainWidth)
 	}
 
-	// 4. Combine
+	// 4. Footer (keyboard shortcuts)
+	footer := renderFooter(w)
+
+	// 5. Combine
 	content := lipgloss.JoinHorizontal(lipgloss.Top,
 		sidebar,
 		mainStage,
 	)
 
-	return docStyle.Render(content)
+	return docStyle.Render(lipgloss.JoinVertical(lipgloss.Left, content, footer))
+}
+
+// --- Footer Component ---
+
+func renderFooter(width int) string {
+	shortcuts := []struct {
+		key   string
+		label string
+	}{
+		{"s", "Start"},
+		{"p", "Share"},
+		{"f", "Fix"},
+		{"y", "Sync"},
+		{"d", "Done"},
+		{"g", "GPS"},
+		{"?", "Help"},
+		{"q", "Quit"},
+	}
+
+	var parts []string
+	for _, s := range shortcuts {
+		parts = append(parts, footerKeyStyle.Render(s.key)+" "+footerLabelStyle.Render(s.label))
+	}
+
+	content := strings.Join(parts, "  ")
+	return footerStyle.Width(width - 4).Render(content)
 }
 
 // --- Sidebar Component ---

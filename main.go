@@ -127,7 +127,7 @@ func initialModel() model {
 
 	s := spinner.New()
 	s.Spinner = spinner.MiniDot
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#0070F3")) // Vercel Blue
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0080")) // Hot Pink
 
 	vp := viewport.New(80, 20)
 	vp.Style = lipgloss.NewStyle().
@@ -346,8 +346,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "q", "esc":
+	case "q":
 		return m, tea.Quit
+
+	// Menu navigation - arrow keys work directly in dashboard
+	case "up", "k":
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.cursor < len(m.items)-1 {
+			m.cursor++
+		}
+		return m, nil
+
+	case "enter":
+		// Execute the selected menu item
+		return m.executeSelectedMenuItem()
 
 	case "i": // Init Graphite
 		m.state = viewRunning
@@ -729,6 +746,50 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 		m.justCommitted = false
 		m.state = viewRunning
 		return m, executeInteractive("gt modify -a --no-interactive --no-edit", "", m.skipHooks)
+	}
+
+	return m, nil
+}
+
+// executeSelectedMenuItem handles executing the currently selected menu item from dashboard
+func (m model) executeSelectedMenuItem() (tea.Model, tea.Cmd) {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return m, nil
+	}
+	selected := m.items[m.cursor]
+
+	// Handle special menu items
+	if selected.title == "Start" {
+		m.state = viewWizardType
+		m.wizardTypeIdx = 0
+		return m, nil
+	}
+
+	if selected.title == "Stack Map" {
+		m.state = viewStack
+		m.stackCursor = 0
+		return m, loadStack()
+	}
+
+	if selected.title == "Ghost Fix" {
+		m.state = viewInput
+		m.isGhostFix = true
+		m.textInput.Reset()
+		m.textInput.Placeholder = "New branch name to rescue your work..."
+		return m, textinput.Blink
+	}
+
+	// Done requires confirmation
+	if selected.title == "Done" {
+		m.confirmAction = "merge"
+		m.state = viewConfirm
+		return m, nil
+	}
+
+	// Regular commands
+	if selected.command != "" {
+		m.state = viewRunning
+		return m, executeInteractive(selected.command, "", m.skipHooks)
 	}
 
 	return m, nil

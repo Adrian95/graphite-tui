@@ -18,7 +18,7 @@ import (
 type state int
 
 const (
-	viewDashboard state = iota // NEW: Default live dashboard
+	viewDashboard state = iota // Default live dashboard
 	viewMenu                   // Full menu
 	viewInput
 	viewRunning
@@ -26,11 +26,13 @@ const (
 	viewWizardType
 	viewWizardScope
 	viewWizardSummary
+	viewWizardPreview // NEW: Preview commit before executing
 	viewStack
 	viewHelp
 	viewUpdate
-	viewStartup    // NEW: First-run prompt
-	viewPostCommit // NEW: Post-commit prompt to share/push
+	viewConfirm    // NEW: Confirmation dialog for destructive actions
+	viewStartup    // First-run prompt
+	viewPostCommit // Post-commit prompt to share/push
 )
 
 // --- Stack Item ---
@@ -99,6 +101,15 @@ type model struct {
 	// Post-commit flow
 	justCommitted bool
 	lastCommitMsg string
+
+	// Confirmation dialog state
+	confirmAction  string // "merge", "ghost"
+	confirmBranch  string // branch name for ghost fix
+	pendingCommand string // command to run on confirm
+
+	// Flash message state
+	flashMessage string
+	flashExpiry  time.Time
 
 	// Version state
 	latestVersion   string
@@ -182,6 +193,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case viewWizardSummary:
 			return m.handleWizardSummaryKeys(key, msg)
+
+		case viewWizardPreview:
+			return m.handleWizardPreviewKeys(key)
+
+		case viewConfirm:
+			return m.handleConfirmKeys(key)
 
 		case viewStack:
 			return m.handleStackKeys(key)
@@ -299,6 +316,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Ticker ---
 	case tickMsg:
+		// Clear expired flash messages
+		if m.flashMessage != "" && time.Now().After(m.flashExpiry) {
+			m.flashMessage = ""
+		}
 		// Auto-refresh status (skip during command execution to avoid race conditions)
 		if m.state != viewRunning {
 			cmds = append(cmds, RefreshNow())
@@ -350,9 +371,10 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		m.state = viewRunning
 		return m, executeSync(m.skipHooks)
 
-	case "d": // Done
-		m.state = viewRunning
-		return m, executeInteractive("gt merge --no-interactive && gt sync --no-interactive", "", m.skipHooks)
+	case "d": // Done - show confirmation first
+		m.confirmAction = "merge"
+		m.state = viewConfirm
+		return m, nil
 
 	case "g": // GPS / Stack Map
 		m.state = viewStack
@@ -380,8 +402,14 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		m.checkingUpdate = true
 		return m, checkForUpdates()
 
-	case "h": // Toggle hooks
+	case "h": // Toggle hooks with flash feedback
 		m.skipHooks = !m.skipHooks
+		if m.skipHooks {
+			m.flashMessage = "Hooks OFF - commits will skip pre-commit hooks"
+		} else {
+			m.flashMessage = "Hooks ON - pre-commit hooks will run"
+		}
+		m.flashExpiry = time.Now().Add(3 * time.Second)
 		return m, nil
 
 	case "r": // Manual refresh
@@ -412,6 +440,12 @@ func (m model) handleMenuKeys(key string) (tea.Model, tea.Cmd) {
 
 	case "h":
 		m.skipHooks = !m.skipHooks
+		if m.skipHooks {
+			m.flashMessage = "Hooks OFF - commits will skip pre-commit hooks"
+		} else {
+			m.flashMessage = "Hooks ON - pre-commit hooks will run"
+		}
+		m.flashExpiry = time.Now().Add(3 * time.Second)
 
 	case "enter":
 		if m.cursor < 0 || m.cursor >= len(m.items) {
@@ -460,22 +494,28 @@ func (m model) handleInputKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// Handle ghost fix from dashboard shortcut
+		// Handle ghost fix - route through confirmation
 		if m.isGhostFix {
-			m.state = viewRunning
 			m.isGhostFix = false
-			return m, executeGhostFix(inputVal, m.skipHooks)
+			m.confirmAction = "ghost"
+			m.confirmBranch = inputVal
+			m.state = viewConfirm
+			return m, nil
 		}
 
 		if m.cursor < 0 || m.cursor >= len(m.items) {
 			return m, nil
 		}
 		selected := m.items[m.cursor]
-		m.state = viewRunning
 
 		if selected.title == "Ghost Fix" {
-			return m, executeGhostFix(inputVal, m.skipHooks)
+			m.confirmAction = "ghost"
+			m.confirmBranch = inputVal
+			m.state = viewConfirm
+			return m, nil
 		}
+
+		m.state = viewRunning
 		return m, executeInteractive(selected.command, inputVal, m.skipHooks)
 	}
 
@@ -535,6 +575,15 @@ func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.
 		m.state = viewDashboard
 		return m, nil
 
+	case "backspace":
+		// Back to scope step
+		if m.textInput.Value() == "" {
+			m.state = viewWizardScope
+			m.textInput.Reset()
+			m.textInput.SetValue(m.wizardScope)
+			return m, textinput.Blink
+		}
+
 	case "enter":
 		m.wizardSummary = m.textInput.Value()
 		if m.wizardSummary == "" {
@@ -543,24 +592,74 @@ func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.
 		}
 		m.wizardError = "" // Clear any previous error
 
-		// Build commit message
+		// Build commit message for preview
 		msgStr := m.commitTypes[m.wizardTypeIdx].label
 		if m.wizardScope != "" {
 			msgStr += fmt.Sprintf("(%s)", m.wizardScope)
 		}
 		msgStr += fmt.Sprintf(": %s", m.wizardSummary)
-
-		// Track that we're committing for post-commit flow
-		m.justCommitted = true
 		m.lastCommitMsg = msgStr
 
-		m.state = viewRunning
-		return m, executeCommit(msgStr, m.skipHooks)
+		// Go to preview instead of executing directly
+		m.state = viewWizardPreview
+		return m, nil
 	}
 
 	var cmd tea.Cmd
 	m.textInput, cmd = m.textInput.Update(msg)
 	return m, cmd
+}
+
+func (m model) handleWizardPreviewKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		// Go back to summary to edit
+		m.state = viewWizardSummary
+		m.textInput.Reset()
+		m.textInput.SetValue(m.wizardSummary)
+		return m, textinput.Blink
+
+	case "backspace":
+		// Also go back to summary
+		m.state = viewWizardSummary
+		m.textInput.Reset()
+		m.textInput.SetValue(m.wizardSummary)
+		return m, textinput.Blink
+
+	case "enter":
+		// Execute the commit
+		m.justCommitted = true
+		m.state = viewRunning
+		return m, executeCommit(m.lastCommitMsg, m.skipHooks)
+	}
+
+	return m, nil
+}
+
+func (m model) handleConfirmKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "y", "enter":
+		// Execute the confirmed action
+		switch m.confirmAction {
+		case "merge":
+			m.state = viewRunning
+			return m, executeInteractive("gt merge --no-interactive && gt sync --no-interactive", "", m.skipHooks)
+		case "ghost":
+			m.state = viewRunning
+			return m, executeGhostFix(m.confirmBranch, m.skipHooks)
+		}
+		m.state = viewDashboard
+		return m, nil
+
+	case "n", "esc":
+		// Cancel - go back to dashboard
+		m.confirmAction = ""
+		m.confirmBranch = ""
+		m.state = viewDashboard
+		return m, nil
+	}
+
+	return m, nil
 }
 
 func (m model) handleStackKeys(key string) (tea.Model, tea.Cmd) {

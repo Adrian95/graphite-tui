@@ -154,8 +154,12 @@ func (m model) View() string {
 		mainStage = renderDashboardMain(m, mainWidth)
 	case viewWizardType, viewWizardScope, viewWizardSummary:
 		mainStage = renderWizardStage(m)
+	case viewWizardPreview:
+		mainStage = renderWizardPreviewStage(m)
 	case viewInput:
 		mainStage = renderInputStage(m)
+	case viewConfirm:
+		mainStage = renderConfirmStage(m)
 	case viewStack:
 		mainStage = renderStackStage(m)
 	case viewRunning, viewOutput, viewPostCommit:
@@ -211,13 +215,24 @@ func renderSidebar(m model) string {
 
 	// Settings Toggle
 	hooksState := "ON"
+	hooksStyle := subtitleStyle
 	if m.skipHooks {
 		hooksState = "OFF"
+		hooksStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning))
 	}
 	settings := lipgloss.JoinVertical(lipgloss.Left,
 		subtitleStyle.Render("────"),
-		subtitleStyle.Render(fmt.Sprintf("[h] Hooks: %s", hooksState)),
+		hooksStyle.Render(fmt.Sprintf("[h] Hooks: %s", hooksState)),
 	)
+
+	// Flash message (shows temporarily after toggling)
+	flashContent := ""
+	if m.flashMessage != "" {
+		flashContent = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorAccent)).
+			Bold(true).
+			Render("⚡ " + m.flashMessage)
+	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
@@ -227,6 +242,7 @@ func renderSidebar(m model) string {
 		lipgloss.JoinVertical(lipgloss.Left, menuItems...),
 		"\n\n",
 		settings,
+		flashContent,
 	)
 }
 
@@ -266,41 +282,63 @@ func renderSidebarBranchInfo(branch string, ahead, behind int) string {
 // --- Main Stage Components ---
 
 func renderDashboardMain(m model, width int) string {
-	// 1. Context Header
-	contextTitle := "Project Overview"
+	// 1. Context Header with file count
+	var header string
 	if len(m.changedFiles) > 0 {
-		contextTitle = "Unsaved Changes"
+		fileWord := "file"
+		if len(m.changedFiles) != 1 {
+			fileWord = "files"
+		}
+		header = titleStyle.Render(fmt.Sprintf("Unsaved Changes (%d %s)", len(m.changedFiles), fileWord))
+	} else {
+		header = titleStyle.Render("Project Overview")
 	}
-	header := titleStyle.Render(contextTitle)
 
 	// 2. File List or Empty State
 	var content string
 	if len(m.changedFiles) > 0 {
 		var files []string
 		for _, f := range m.changedFiles {
-			var icon, style string
-			// Nerd Font icons would go here, using ASCII/Unicode for now
-			switch f.Status {
-			case "M":
-				icon = "● "
-				style = fileModifiedStyle.Render(icon + f.Path)
-			case "A":
-				icon = "+ "
-				style = fileAddedStyle.Render(icon + f.Path)
-			case "D":
-				icon = "✖ "
-				style = fileDeletedStyle.Render(icon + f.Path)
-			default:
-				icon = "? "
-				style = fileUntrackedStyle.Render(icon + f.Path)
+			var statusLabel, styledLine string
+			path := f.Path
+
+			// Smart path truncation - keep filename, truncate directories
+			maxLen := width - 12
+			if maxLen < 20 {
+				maxLen = 20
 			}
-			files = append(files, style)
+			if len(path) > maxLen {
+				// Show ...end of path
+				path = "..." + path[len(path)-maxLen+3:]
+			}
+
+			switch f.Status {
+			case "M", "MM":
+				statusLabel = "M "
+				styledLine = fileModifiedStyle.Render(statusLabel + path)
+			case "A", "AM":
+				statusLabel = "+ "
+				styledLine = fileAddedStyle.Render(statusLabel + path)
+			case "D":
+				statusLabel = "- "
+				styledLine = fileDeletedStyle.Render(statusLabel + path)
+			case "R":
+				statusLabel = "R "
+				styledLine = fileModifiedStyle.Render(statusLabel + path)
+			case "??":
+				statusLabel = "? "
+				styledLine = fileUntrackedStyle.Render(statusLabel + path)
+			default:
+				statusLabel = "● "
+				styledLine = fileUntrackedStyle.Render(statusLabel + path)
+			}
+			files = append(files, "  "+styledLine)
 		}
-		// Limit to 10 files to avoid overflow
-		if len(files) > 12 {
-			remaining := len(files) - 12
-			files = files[:12]
-			files = append(files, subtitleStyle.Render(fmt.Sprintf("...and %d more", remaining)))
+		// Limit files to avoid overflow
+		if len(files) > 10 {
+			remaining := len(files) - 10
+			files = files[:10]
+			files = append(files, subtitleStyle.Render(fmt.Sprintf("     ...and %d more", remaining)))
 		}
 		content = lipgloss.JoinVertical(lipgloss.Left, files...)
 	} else {
@@ -308,7 +346,7 @@ func renderDashboardMain(m model, width int) string {
 		content = lipgloss.JoinVertical(lipgloss.Center,
 			"\n",
 			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSub)).Render("No changed files"),
-			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("Everything is clean ✨"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("Everything is clean"),
 		)
 	}
 
@@ -350,9 +388,9 @@ func renderWizardStage(m model) string {
 
 	switch m.state {
 	case viewWizardType:
-		step = "Step 1 of 3"
+		step = "Step 1 of 4"
 		question = "What kind of change is this?"
-		// Render types as a clean list
+		// Render types as a clean list with examples
 		var types []string
 		for i, t := range m.commitTypes {
 			prefix := "  "
@@ -361,33 +399,51 @@ func renderWizardStage(m model) string {
 				prefix = "❯ "
 				style = menuSelectedStyle
 			}
-			types = append(types, style.Render(fmt.Sprintf("%s%-10s %s", prefix, t.label, t.desc)))
+			// Format: "feat     New feature    'add dark mode'"
+			exampleText := subtitleStyle.Render(fmt.Sprintf("\"%s\"", t.example))
+			types = append(types, style.Render(fmt.Sprintf("%s%-10s %-16s", prefix, t.label, t.desc))+exampleText)
 		}
 		return lipgloss.JoinVertical(lipgloss.Left,
 			subtitleStyle.Render(step),
 			wizardQuestionStyle.Render(question),
 			"\n",
 			lipgloss.JoinVertical(lipgloss.Left, types...),
+			"\n",
+			subtitleStyle.Render("[↑↓] Select  [Enter] Confirm  [Esc] Cancel"),
 		)
 
 	case viewWizardScope:
-		step = "Step 2 of 3"
-		question = "What is the scope? (Optional)"
-		placeholder = "e.g. auth, api, ui"
+		step = "Step 2 of 4"
+		question = "What part of the codebase? (Optional)"
+		placeholder = "Component name: auth, navbar, api, etc."
 
 	case viewWizardSummary:
-		step = "Step 3 of 3"
+		step = "Step 3 of 4"
 		question = "Describe the change"
-		placeholder = "e.g. add new login button"
+		placeholder = "Use present tense: 'add button' not 'added button'"
 	}
 
 	// Input view
 	inputDisplay := inputBoxStyle.Render(m.textInput.View())
+
+	// Add character count for summary step
+	charCount := ""
+	if m.state == viewWizardSummary {
+		count := len(m.textInput.Value())
+		charCount = subtitleStyle.Render(fmt.Sprintf("[%d/72 characters]", count))
+	}
+
 	if m.wizardError != "" {
 		inputDisplay = lipgloss.JoinVertical(lipgloss.Left,
 			inputDisplay,
 			lipgloss.NewStyle().Foreground(lipgloss.Color(colorError)).Render("⚠ "+m.wizardError),
 		)
+	}
+
+	// Build hint based on step
+	hint := "[Enter] Next  [Esc] Cancel"
+	if m.state == viewWizardScope || m.state == viewWizardSummary {
+		hint = "[Enter] Next  [Backspace] Back  [Esc] Cancel"
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
@@ -396,9 +452,103 @@ func renderWizardStage(m model) string {
 		subtitleStyle.Render(placeholder),
 		"\n",
 		inputDisplay,
-		"\n\n",
-		subtitleStyle.Render("Enter to confirm • Esc to back"),
+		charCount,
+		"\n",
+		subtitleStyle.Render(hint),
 	)
+}
+
+func renderWizardPreviewStage(m model) string {
+	// Show file count
+	fileCount := len(m.changedFiles)
+	fileText := fmt.Sprintf("%d file", fileCount)
+	if fileCount != 1 {
+		fileText += "s"
+	}
+
+	// Build the preview
+	commitBox := lipgloss.NewStyle().
+		Background(lipgloss.Color(colorHighlight)).
+		Foreground(lipgloss.Color(colorFg)).
+		Padding(0, 1).
+		Render(m.lastCommitMsg)
+
+	tipBox := cardStyle.Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("This will:"),
+			"  • Create a new branch",
+			fmt.Sprintf("  • Commit your %s", fileText),
+			"  • You can share for review with [p]",
+		),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		subtitleStyle.Render("Step 4 of 4"),
+		wizardQuestionStyle.Render("Ready to commit?"),
+		"\n",
+		commitBox,
+		"\n",
+		tipBox,
+		"\n",
+		subtitleStyle.Render("[Enter] Commit  [Esc] Edit message  [Backspace] Back"),
+	)
+}
+
+func renderConfirmStage(m model) string {
+	var title, description, warning string
+	var bullets []string
+
+	switch m.confirmAction {
+	case "merge":
+		title = "Merge & Cleanup"
+		description = "This will merge your approved PR and delete the local branch."
+		warning = "Make sure your PR is approved first!"
+		bullets = []string{
+			"• Merge your PR on GitHub",
+			"• Delete the local branch",
+			"• Sync with remote",
+		}
+	case "ghost":
+		title = "Rescue Mode"
+		description = fmt.Sprintf("Creating new branch: %s", m.confirmBranch)
+		warning = ""
+		bullets = []string{
+			"• Create branch with your changes",
+			"• Rebase onto main",
+			"• Sync with remote",
+		}
+	default:
+		title = "Confirm Action"
+		description = "Are you sure?"
+	}
+
+	content := []string{
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render(title),
+		"\n",
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Render(description),
+		"\n",
+	}
+
+	if len(bullets) > 0 {
+		content = append(content, cardStyle.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("This will:"),
+				strings.Join(bullets, "\n"),
+			),
+		))
+		content = append(content, "\n")
+	}
+
+	if warning != "" {
+		content = append(content, lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning)).Render("⚠ "+warning))
+		content = append(content, "\n")
+	}
+
+	content = append(content, "\n")
+	content = append(content, menuSelectedStyle.Render("❯ [y] Confirm"))
+	content = append(content, menuItemStyle.Render("  [n] Cancel"))
+
+	return lipgloss.JoinVertical(lipgloss.Left, content...)
 }
 
 func renderInputStage(m model) string {
@@ -425,13 +575,25 @@ func renderInputStage(m model) string {
 func renderOutputStage(m model) string {
 	// Post-commit special success state
 	if m.state == viewPostCommit {
+		// Educational tip about Graphite workflow
+		tipBox := cardStyle.Render(
+			lipgloss.JoinVertical(lipgloss.Left,
+				lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("Graphite Tip"),
+				"Submit now to create a PR and trigger",
+				"preview builds. Small, frequent PRs get",
+				"reviewed faster and merge easier!",
+			),
+		)
+
 		return lipgloss.JoinVertical(lipgloss.Left,
 			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Bold(true).Render("✔ Changes Saved"),
 			"\n",
 			lipgloss.NewStyle().Background(lipgloss.Color(colorHighlight)).Padding(0, 1).Render(m.lastCommitMsg),
 			"\n",
+			tipBox,
+			"\n",
 			titleStyle.Render("What's next?"),
-			menuSelectedStyle.Render("❯ [p] Share & Create PR"),
+			menuSelectedStyle.Render("❯ [p] Share & Create PR  (recommended)"),
 			menuItemStyle.Render("  [n] Continue Working"),
 			menuItemStyle.Render("  [f] Fix (Amend)"),
 		)
@@ -498,31 +660,55 @@ func renderStackStage(m model) string {
 		lines = append(lines, style.Render(label))
 	}
 
+	// Legend
+	legend := lipgloss.JoinHorizontal(lipgloss.Left,
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("● current"),
+		subtitleStyle.Render("  ○ branch  "),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render("⦿ selected"),
+	)
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
+		"\n",
 		lipgloss.JoinVertical(lipgloss.Left, lines...),
 		"\n",
-		subtitleStyle.Render("Enter to checkout • r to refresh"),
+		legend,
+		"\n",
+		subtitleStyle.Render("[↑↓] Navigate  [Enter] Checkout  [r] Refresh  [Esc] Back"),
 	)
 }
 
 func renderHelpStage() string {
+	workflowSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("WORKFLOW")
+	navSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("NAVIGATION")
+	settingsSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("SETTINGS")
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		titleStyle.Render("Help & Shortcuts"),
 		"\n",
-		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render("General"),
-		"  i  Initialize Graphite",
-		"  s  Start (Commit)",
-		"  p  Share (Submit)",
-		"  f  Fix (Amend)",
-		"  y  Sync",
-		"  d  Done (Merge)",
-		"  g  Stack Map",
+		workflowSection,
+		"  s  Start      Create branch + commit → ready to stack!",
+		"  p  Share      Submit PR → triggers preview build",
+		"  f  Fix        Amend last commit (forgot something?)",
+		"  y  Sync       Pull latest from your team",
+		"  d  Done       Merge approved PR + cleanup",
 		"\n",
-		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render("Navigation"),
-		"  ↑/↓  Move selection",
-		"  Enter Select",
-		"  Esc  Back/Cancel",
+		navSection,
+		"  g  GPS        Visual stack map - see all branches",
+		"  x  Rescue     Ghost fix - save work from merged branch",
+		"  m  Menu       Full command menu",
+		"  ?  Help       This screen",
+		"  ↑↓ Navigate   Move selection up/down",
+		"  ⏎  Select     Confirm selection",
+		"  ⎋  Back       Cancel / go back",
+		"\n",
+		settingsSection,
+		"  i  Init       Set up Graphite (first time only)",
+		"  h  Hooks      Toggle pre-commit hooks on/off",
+		"  u  Update     Check for updates",
+		"  r  Refresh    Refresh git status",
+		"\n",
+		subtitleStyle.Render("Press Esc to return"),
 	)
 }
 

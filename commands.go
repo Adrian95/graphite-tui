@@ -32,6 +32,25 @@ type statusMsg struct {
 
 type stackLoadedMsg []stackItem
 
+// --- Helper Functions ---
+
+// parseGitCount extracts a number after a keyword like "ahead " or "behind "
+func parseGitCount(statusLine, keyword string) int {
+	idx := strings.Index(statusLine, keyword)
+	if idx == -1 {
+		return 0
+	}
+	start := idx + len(keyword)
+	if start >= len(statusLine) {
+		return 0
+	}
+	var count int
+	for i := start; i < len(statusLine) && statusLine[i] >= '0' && statusLine[i] <= '9'; i++ {
+		count = count*10 + int(statusLine[i]-'0')
+	}
+	return count
+}
+
 // --- Environment Setup ---
 
 // getNonInteractiveEnv returns environment variables that prevent vim/editor popups
@@ -237,27 +256,8 @@ func checkGitStatus() tea.Msg {
 	// Get ahead/behind counts
 	if out, err := exec.Command("git", "status", "-sb").Output(); err == nil {
 		statusLine := string(out)
-		if strings.Contains(statusLine, "ahead") {
-			// Parse "ahead N" - extract number after "ahead "
-			for i := strings.Index(statusLine, "ahead "); i != -1 && i+6 < len(statusLine); {
-				var count int
-				for j := i + 6; j < len(statusLine) && statusLine[j] >= '0' && statusLine[j] <= '9'; j++ {
-					count = count*10 + int(statusLine[j]-'0')
-				}
-				status.ahead = count
-				break
-			}
-		}
-		if strings.Contains(statusLine, "behind") {
-			for i := strings.Index(statusLine, "behind "); i != -1 && i+7 < len(statusLine); {
-				var count int
-				for j := i + 7; j < len(statusLine) && statusLine[j] >= '0' && statusLine[j] <= '9'; j++ {
-					count = count*10 + int(statusLine[j]-'0')
-				}
-				status.behind = count
-				break
-			}
-		}
+		status.ahead = parseGitCount(statusLine, "ahead ")
+		status.behind = parseGitCount(statusLine, "behind ")
 	}
 
 	// Get changed files
@@ -422,19 +422,20 @@ func getMenuItems() []menuItem {
 
 // Commit types for the wizard
 type commitType struct {
-	label string
-	desc  string
+	label   string
+	desc    string
+	example string
 }
 
 func getCommitTypes() []commitType {
 	return []commitType{
-		{"feat", "A new feature"},
-		{"fix", "A bug fix"},
-		{"docs", "Documentation only"},
-		{"style", "Formatting, no code change"},
-		{"refactor", "Code change, no new feature or fix"},
-		{"perf", "Performance improvement"},
-		{"test", "Adding or fixing tests"},
-		{"chore", "Build process or tooling"},
+		{"feat", "New feature", "add dark mode toggle"},
+		{"fix", "Bug fix", "fix login redirect loop"},
+		{"docs", "Documentation", "update API docs"},
+		{"style", "Formatting", "fix indentation"},
+		{"refactor", "Code restructure", "extract auth logic"},
+		{"perf", "Performance", "cache API responses"},
+		{"test", "Tests", "add login tests"},
+		{"chore", "Tooling", "update dependencies"},
 	}
 }

@@ -20,10 +20,16 @@ Designed for the "Solo Speedrun" workflow, built with Go, Bubble Tea, and Lipglo
 
 ## 🛠️ Installation
 
+### Quick Install (Recommended)
+
+```bash
+go install github.com/Adrian95/graphite-tui@latest
+```
+
 ### From Source
 
 ```bash
-git clone https://github.com/adrian/graphite-tui.git
+git clone https://github.com/Adrian95/graphite-tui.git
 cd graphite-tui
 go install
 ```

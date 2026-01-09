@@ -127,6 +127,21 @@ func executeGhostFix(branchName string, skipHooks bool) tea.Cmd {
 	})
 }
 
+// executeCommit creates a new branch and commit using direct exec.Command (no shell injection)
+// This fixes the "empty commit message" bug that occurred with shell parameter expansion
+func executeCommit(msg string, skipHooks bool) tea.Cmd {
+	args := []string{"create", "-a", "--no-interactive", "-m", msg}
+	if skipHooks {
+		args = append(args, "--no-verify")
+	}
+	cmd := exec.Command("gt", args...)
+	cmd.Env = getNonInteractiveEnv()
+
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return cmdFinishedMsg{err: err, command: "gt create -m \"" + msg + "\""}
+	})
+}
+
 // executeCheckout switches to a different branch using direct gt command (no shell injection)
 func executeCheckout(branch string) tea.Cmd {
 	return func() tea.Msg {
@@ -228,15 +243,19 @@ func checkGitStatus() tea.Msg {
 		}
 	}
 
-	// Generate suggestion
+	// Generate suggestion (beginner-friendly explanations)
 	if !status.gtInitialized {
 		status.suggestion = "suggestion: Graphite not initialized. Press [i] to set up Graphite in this repo."
 	} else if len(status.changedFiles) > 0 {
-		status.suggestion = "suggestion: You have uncommitted changes. Press [s] to commit or [f] to amend."
+		status.suggestion = "suggestion: You have unsaved changes! Press [s] to save as NEW work, or [f] to add to your LAST save."
 	} else if status.ahead > 0 {
-		status.suggestion = "suggestion: Your branch is ahead. Press [p] to push and open a PR."
+		status.suggestion = "suggestion: Your work is ready to share! Press [p] to push to GitHub and open a PR."
+	} else if status.behind > 0 {
+		status.suggestion = "suggestion: Your team made updates. Press [y] to sync and get the latest changes."
 	} else if status.onMain {
-		status.suggestion = "suggestion: You're on main. Press [s] to start a new feature branch."
+		status.suggestion = "suggestion: You're on main. Press [s] to start working on something new!"
+	} else {
+		status.suggestion = "suggestion: All caught up! Press [s] to add more work, or [d] when your PR is approved."
 	}
 
 	return status

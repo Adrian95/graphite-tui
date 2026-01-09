@@ -89,6 +89,12 @@ type model struct {
 	// Options
 	skipHooks bool
 
+	// Validation feedback
+	wizardError string
+
+	// Ghost fix mode (for input view)
+	isGhostFix bool
+
 	// Version state
 	latestVersion   string
 	checkingUpdate  bool
@@ -312,6 +318,7 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 	case "s": // Start
 		m.state = viewWizardType
 		m.wizardTypeIdx = 0
+		m.wizardError = "" // Clear any previous validation errors
 		return m, nil
 
 	case "p": // Preview
@@ -334,6 +341,13 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		m.state = viewStack
 		m.stackCursor = 0
 		return m, loadStack()
+
+	case "x": // Rescue (Ghost Fix)
+		m.state = viewInput
+		m.isGhostFix = true
+		m.textInput.Reset()
+		m.textInput.Placeholder = "New branch name to rescue your work..."
+		return m, textinput.Blink
 
 	case "m": // Menu
 		m.state = viewMenu
@@ -420,12 +434,20 @@ func (m model) handleInputKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
 		m.state = viewDashboard
+		m.isGhostFix = false
 		return m, nil
 
 	case "enter":
 		inputVal := m.textInput.Value()
 		if inputVal == "" {
 			return m, nil
+		}
+
+		// Handle ghost fix from dashboard shortcut
+		if m.isGhostFix {
+			m.state = viewRunning
+			m.isGhostFix = false
+			return m, executeGhostFix(inputVal, m.skipHooks)
 		}
 
 		if m.cursor < 0 || m.cursor >= len(m.items) {
@@ -499,8 +521,10 @@ func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.
 	case "enter":
 		m.wizardSummary = m.textInput.Value()
 		if m.wizardSummary == "" {
+			m.wizardError = "Summary is required - describe what you changed!"
 			return m, nil
 		}
+		m.wizardError = "" // Clear any previous error
 
 		// Build commit message
 		msgStr := m.commitTypes[m.wizardTypeIdx].label
@@ -510,7 +534,7 @@ func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.
 		msgStr += fmt.Sprintf(": %s", m.wizardSummary)
 
 		m.state = viewRunning
-		return m, executeInteractive("gt create -a --no-interactive -m", msgStr, m.skipHooks)
+		return m, executeCommit(msgStr, m.skipHooks)
 	}
 
 	var cmd tea.Cmd
@@ -654,19 +678,29 @@ func (m model) View() string {
 		)
 
 	case viewWizardSummary:
-		content = lipgloss.JoinVertical(lipgloss.Left,
+		summaryContent := []string{
 			inputTitleStyle.Render("Step 3: Enter Summary"),
 			subtitleStyle.Render("e.g. add new login button"),
 			inputBoxStyle.Render(m.textInput.View()),
-		)
+		}
+		if m.wizardError != "" {
+			summaryContent = append(summaryContent, errorStyle.Render("⚠ "+m.wizardError))
+		}
+		content = lipgloss.JoinVertical(lipgloss.Left, summaryContent...)
 
 	case viewStack:
 		content = renderStackMap(m.stackItems, m.stackCursor)
 
 	case viewInput:
-		title := m.items[m.cursor].title
+		var title string
+		if m.isGhostFix {
+			title = "Rescue (Ghost Fix)"
+		} else if m.cursor >= 0 && m.cursor < len(m.items) {
+			title = m.items[m.cursor].title
+		}
 		content = lipgloss.JoinVertical(lipgloss.Left,
-			inputTitleStyle.Render(fmt.Sprintf("%s > Input", title)),
+			inputTitleStyle.Render(fmt.Sprintf("%s > Enter branch name", title)),
+			subtitleStyle.Render("This will save your work to a fresh branch"),
 			inputBoxStyle.Render(m.textInput.View()),
 			"",
 			subtitleStyle.Render("Press Enter to confirm • Esc to cancel"),

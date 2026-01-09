@@ -238,6 +238,7 @@ func renderShortcutsBarWithInit(skipHooks bool, gtInitialized bool) string {
 		{"y", "Sync"},
 		{"d", "Done"},
 		{"g", "GPS"},
+		{"x", "Rescue"},
 		{"m", "Menu"},
 		{"?", "Help"},
 		{"q", "Quit"},
@@ -356,6 +357,7 @@ func renderHelp() string {
 				"[f] Fix     - Amend current commit",
 				"[y] Sync    - Pull latest changes",
 				"[d] Done    - Merge stack & cleanup",
+				"[x] Rescue  - Save work from a stuck/merged branch",
 			},
 		},
 		{

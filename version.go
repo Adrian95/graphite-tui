@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	currentVersion = "v2.0.0"
+	currentVersion = "v2.0.1"
 	repoOwner      = "Adrian95"
 	repoName       = "graphite-tui"
 	githubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"
@@ -78,9 +78,10 @@ func checkForUpdates() tea.Cmd {
 }
 
 // performUpdate updates the tool to the latest version
+// It handles identifying the correct installation path and replacing the running binary
 func performUpdate() tea.Cmd {
 	return func() tea.Msg {
-		// Check if Go is installed
+		// 1. Check if Go is installed
 		goPath, err := exec.LookPath("go")
 		if err != nil {
 			return updateCompleteMsg{
@@ -97,10 +98,23 @@ To install graphite-tui, you need Go first:
 			}
 		}
 
-		// Use go install to update
+		// 2. Determine where 'go install' puts binaries (GOBIN or GOPATH/bin)
+		var installDir string
+		if gobin := os.Getenv("GOBIN"); gobin != "" {
+			installDir = gobin
+		} else if gopath := os.Getenv("GOPATH"); gopath != "" {
+			installDir = filepath.Join(gopath, "bin")
+		} else {
+			// Default GOPATH is $HOME/go
+			home, _ := os.UserHomeDir()
+			installDir = filepath.Join(home, "go", "bin")
+		}
+
+		targetBinary := filepath.Join(installDir, "graphite-tui")
+
+		// 3. Run go install to update the global binary
 		installPath := fmt.Sprintf("github.com/%s/%s@latest", repoOwner, repoName)
 		cmd := exec.Command(goPath, "install", installPath)
-
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			errMsg := string(output)
@@ -111,6 +125,64 @@ To install graphite-tui, you need Go first:
 				success: false,
 				err:     err,
 				message: fmt.Sprintf("Update failed: %s\n\nTry manually:\n  go install %s", errMsg, installPath),
+			}
+		}
+
+		// 4. Identify the currently running executable
+		currentExe, err := os.Executable()
+		if err != nil {
+			// Can't identify self, assume success if go install worked
+			return updateCompleteMsg{
+				success: true,
+				message: "Update installed globally! If you are running a local copy, please restart from the global path.",
+			}
+		}
+
+		// Resolve symlinks to compare real paths
+		realCurrent, err := filepath.EvalSymlinks(currentExe)
+		if err == nil {
+			currentExe = realCurrent
+		}
+
+		realTarget, err := filepath.EvalSymlinks(targetBinary)
+		if err == nil {
+			targetBinary = realTarget
+		}
+
+		// 5. If running binary != installed binary, replace the running one
+		if currentExe != targetBinary {
+			// Read the new binary
+			input, err := os.ReadFile(targetBinary)
+			if err != nil {
+				return updateCompleteMsg{
+					success: true,
+					message: fmt.Sprintf("Updated globally to %s\n(Could not read new binary to replace current execution)", targetBinary),
+				}
+			}
+
+			// Replace current binary
+			// We rename the old one first to allow overwriting on some OSs (like Windows, though less relevant here)
+			// On Unix, writing to a running executable file (ETXTBSY) fails, but renaming/unlinking works.
+			oldPath := currentExe + ".old"
+			_ = os.Rename(currentExe, oldPath) // Ignore error, best effort
+
+			// Write new file
+			err = os.WriteFile(currentExe, input, 0755)
+			if err != nil {
+				// Restore if write failed
+				_ = os.Rename(oldPath, currentExe)
+				return updateCompleteMsg{
+					success: true,
+					message: fmt.Sprintf("Updated globally to %s\n(Note: Could not replace currently running file at %s)", targetBinary, currentExe),
+				}
+			}
+
+			// Cleanup old file
+			_ = os.Remove(oldPath)
+
+			return updateCompleteMsg{
+				success: true,
+				message: fmt.Sprintf("Update complete! Replaced binary at %s\nPlease restart the application.", currentExe),
 			}
 		}
 

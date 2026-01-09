@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -15,11 +16,22 @@ import (
 )
 
 const (
-	currentVersion = "v1.8.1"
+	currentVersion = "v1.8.2"
 	repoOwner      = "Adrian95"
 	repoName       = "graphite-tui"
 	githubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"
 )
+
+// isDevBuild checks if this binary was built locally (go run/build) vs installed (go install)
+func isDevBuild() bool {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return true // Can't read build info, assume dev
+	}
+	// When installed via `go install ...@latest`, the version will be set
+	// When built locally, version is "(devel)"
+	return info.Main.Version == "(devel)" || info.Main.Version == ""
+}
 
 // --- Version Messages ---
 
@@ -283,6 +295,10 @@ func isNewerVersion(current, latest string) bool {
 }
 
 // GetCurrentVersion returns the current version string
+// Shows "(dev)" suffix when running a locally built binary
 func GetCurrentVersion() string {
+	if isDevBuild() {
+		return currentVersion + " (dev)"
+	}
 	return currentVersion
 }

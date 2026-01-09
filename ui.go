@@ -188,7 +188,7 @@ func renderSidebar(m model) string {
 	repoName := "Graphite TUI" // Could fetch actual repo name if we wanted
 	header := lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Bold(true).Render(repoName),
-		subtitleStyle.Render(currentVersion),
+		subtitleStyle.Render(GetCurrentVersion()),
 	)
 
 	// Status: Branch Info
@@ -727,7 +727,7 @@ func renderUpdateStage(m model) string {
 	} else {
 		content = append(content,
 			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("You are up to date!"),
-			subtitleStyle.Render(currentVersion),
+			subtitleStyle.Render(GetCurrentVersion()),
 		)
 	}
 

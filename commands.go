@@ -172,6 +172,25 @@ func executeSubmit(skipHooks bool) tea.Cmd {
 	}
 }
 
+// executeSync syncs with remote, using interactive mode so user can answer prompts
+func executeSync(skipHooks bool) tea.Cmd {
+	args := []string{"sync"}
+	if skipHooks {
+		args = append(args, "--no-verify")
+	}
+	cmd := exec.Command("gt", args...)
+	// Don't set non-interactive env - let user answer prompts
+	cmd.Env = os.Environ()
+
+	return tea.ExecProcess(cmd, func(err error) tea.Msg {
+		return cmdFinishedMsg{
+			err:     err,
+			command: "gt sync",
+			output:  "Sync complete!",
+		}
+	})
+}
+
 // executeCheckout switches to a different branch using direct gt command (no shell injection)
 func executeCheckout(branch string) tea.Cmd {
 	return func() tea.Msg {
@@ -366,8 +385,8 @@ func getMenuItems() []menuItem {
 		{
 			title:   "Sync",
 			desc:    "Update local",
-			guide:   "Pulls the latest changes from GitHub. Run this often to stay up to date!",
-			command: "gt sync --no-interactive",
+			guide:   "Pulls the latest changes from GitHub. May ask about deleting merged branches.",
+			command: "gt sync",
 			key:     "y",
 		},
 		{

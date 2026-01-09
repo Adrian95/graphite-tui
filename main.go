@@ -348,7 +348,7 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 
 	case "y": // Sync
 		m.state = viewRunning
-		return m, executeInteractive("gt sync --no-interactive", "", m.skipHooks)
+		return m, executeSync(m.skipHooks)
 
 	case "d": // Done
 		m.state = viewRunning

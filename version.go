@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	currentVersion = "v1.8.5"
+	currentVersion = "v1.8.6"
 	repoOwner      = "Adrian95"
 	repoName       = "graphite-tui"
 	githubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"
@@ -124,9 +124,10 @@ To install graphite-tui, you need Go first:
 
 		targetBinary := filepath.Join(installDir, "graphite-tui")
 
-		// 3. Run go install to update the global binary
+		// 3. Run go install to update the global binary (with GOPROXY=direct to bypass cache)
 		installPath := fmt.Sprintf("github.com/%s/%s@latest", repoOwner, repoName)
 		cmd := exec.Command(goPath, "install", installPath)
+		cmd.Env = append(os.Environ(), "GOPROXY=direct")
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			errMsg := string(output)

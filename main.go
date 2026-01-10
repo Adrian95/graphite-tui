@@ -115,6 +115,9 @@ type model struct {
 	latestVersion   string
 	checkingUpdate  bool
 	updateAvailable string
+
+	// File list expansion
+	filesExpanded bool
 }
 
 func initialModel() model {
@@ -431,6 +434,10 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 
 	case "r": // Manual refresh
 		return m, RefreshNow()
+
+	case "tab": // Toggle file list expansion
+		m.filesExpanded = !m.filesExpanded
+		return m, nil
 	}
 
 	return m, nil

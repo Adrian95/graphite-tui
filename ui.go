@@ -33,7 +33,7 @@ var (
 
 	// Layout Blocks
 	sidebarStyle = lipgloss.NewStyle().
-			Width(25).
+			Width(20).
 			PaddingRight(2).
 			Border(lipgloss.NormalBorder(), false, true, false, false). // Right border only
 			BorderForeground(lipgloss.Color(colorBorder))
@@ -144,14 +144,13 @@ var (
 // View is the main render loop
 func (m model) View() string {
 	// 1. Calculate Layout Dimensions
-	// Assuming m.width is set. If not, default to 80.
 	w := m.width
 	if w == 0 {
 		w = 100
 	}
 
-	sidebarWidth := 25
-	mainWidth := w - sidebarWidth - 6 // -6 for margins/borders
+	sidebarWidth := 20
+	mainWidth := w - sidebarWidth - 6
 	if mainWidth < 40 {
 		mainWidth = 40
 	}
@@ -228,202 +227,197 @@ func renderFooter(width int) string {
 // --- Sidebar Component ---
 
 func renderSidebar(m model) string {
-	// Header: Repo Info
-	repoName := "Graphite TUI" // Could fetch actual repo name if we wanted
+	// Header: App name + version
 	header := lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Bold(true).Render(repoName),
+		lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color(colorAccent)).Render("Graphite TUI"),
 		subtitleStyle.Render(GetCurrentVersion()),
 	)
 
-	// Status: Branch Info
-	branchInfo := renderSidebarBranchInfo(m.branch, m.ahead, m.behind)
-
-	// Navigation Menu
-	var menuItems []string
-	menuItems = append(menuItems, subtitleStyle.Render("ACTIONS"))
-
-	for i, item := range m.items {
-		// Styling
-		isSelected := m.cursor == i
-		label := fmt.Sprintf("%s %s", item.key, item.title)
-
-		// Use symbols for extra flair
-		symbol := "  "
-		if isSelected {
-			symbol = "❯ " // Ghostty/Starship style arrow
-			menuItems = append(menuItems, menuSelectedStyle.Render(symbol+label))
-		} else {
-			menuItems = append(menuItems, menuItemStyle.Render(symbol+label))
-		}
-	}
-
 	// Settings Toggle
 	hooksState := "ON"
-	hooksStyle := subtitleStyle
+	hooksColor := colorSuccess
 	if m.skipHooks {
 		hooksState = "OFF"
-		hooksStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(colorWarning))
+		hooksColor = colorWarning
 	}
-	settings := lipgloss.JoinVertical(lipgloss.Left,
-		subtitleStyle.Render("────"),
-		hooksStyle.Render(fmt.Sprintf("[h] Hooks: %s", hooksState)),
+	hooksLine := lipgloss.JoinHorizontal(lipgloss.Left,
+		subtitleStyle.Render("Hooks "),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(hooksColor)).Bold(true).Render(hooksState),
 	)
 
-	// Flash message (shows temporarily after toggling)
+	// Flash message (shows temporarily)
 	flashContent := ""
 	if m.flashMessage != "" {
-		flashContent = lipgloss.NewStyle().
+		flashContent = "\n" + lipgloss.NewStyle().
 			Foreground(lipgloss.Color(colorAccent)).
-			Bold(true).
-			Render("⚡ " + m.flashMessage)
+			Italic(true).
+			Render(m.flashMessage)
+	}
+
+	// Update available indicator
+	updateIndicator := ""
+	if m.updateAvailable != "" {
+		updateIndicator = "\n" + lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorSuccess)).
+			Render("↑ " + m.updateAvailable)
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
 		"\n",
-		branchInfo,
-		"\n",
-		lipgloss.JoinVertical(lipgloss.Left, menuItems...),
-		"\n\n",
-		settings,
+		hooksLine,
+		updateIndicator,
 		flashContent,
 	)
-}
-
-func renderSidebarBranchInfo(branch string, ahead, behind int) string {
-	// Branch Name
-	if branch == "" {
-		branch = "loading..."
-	}
-
-	// Truncate branch if too long
-	if len(branch) > 18 {
-		branch = branch[:15] + "..."
-	}
-
-	branchRow := lipgloss.JoinHorizontal(lipgloss.Left,
-		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Render(" "), // Git Branch Icon
-		branch,
-	)
-
-	// Status Pills
-	var statusPills []string
-	if ahead > 0 {
-		statusPills = append(statusPills, statusAheadStyle.Render(fmt.Sprintf("↑%d", ahead)))
-	}
-	if behind > 0 {
-		statusPills = append(statusPills, statusBehindStyle.Render(fmt.Sprintf("↓%d", behind)))
-	}
-
-	content := []string{branchRow}
-	if len(statusPills) > 0 {
-		content = append(content, lipgloss.JoinHorizontal(lipgloss.Left, statusPills...))
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, content...)
 }
 
 // --- Main Stage Components ---
 
 func renderDashboardMain(m model, width int) string {
-	// 1. Context Header with file count
-	var header string
-	if len(m.changedFiles) > 0 {
-		fileWord := "file"
-		if len(m.changedFiles) != 1 {
-			fileWord = "files"
-		}
-		header = titleStyle.Render(fmt.Sprintf("Unsaved Changes (%d %s)", len(m.changedFiles), fileWord))
-	} else {
-		header = titleStyle.Render("Project Overview")
+	// 1. Branch Header (prominent at top)
+	branch := m.branch
+	if branch == "" {
+		branch = "loading..."
 	}
 
-	// 2. File List or Empty State
-	var content string
+	branchDisplay := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(colorAccent)).
+		Bold(true).
+		Render(" " + branch)
+
+	// Status badges
+	var badges []string
+	if m.ahead > 0 {
+		badges = append(badges, statusAheadStyle.Render(fmt.Sprintf(" ↑%d ", m.ahead)))
+	}
+	if m.behind > 0 {
+		badges = append(badges, statusBehindStyle.Render(fmt.Sprintf(" ↓%d ", m.behind)))
+	}
+
+	branchLine := branchDisplay
+	if len(badges) > 0 {
+		branchLine = lipgloss.JoinHorizontal(lipgloss.Left,
+			branchDisplay,
+			"  ",
+			lipgloss.JoinHorizontal(lipgloss.Left, badges...),
+		)
+	}
+
+	// 2. File List Header with expand hint
+	var filesHeader string
+	if len(m.changedFiles) > 0 {
+		expandHint := "[Tab] expand"
+		if m.filesExpanded {
+			expandHint = "[Tab] collapse"
+		}
+		filesHeader = lipgloss.JoinHorizontal(lipgloss.Left,
+			titleStyle.Render(fmt.Sprintf("Changes (%d)", len(m.changedFiles))),
+			"  ",
+			subtitleStyle.Render(expandHint),
+		)
+	} else {
+		filesHeader = titleStyle.Render("No Changes")
+	}
+
+	// 3. File List (expandable with Tab)
+	var fileList string
 	if len(m.changedFiles) > 0 {
 		var files []string
-		for _, f := range m.changedFiles {
-			var statusLabel, styledLine string
-			path := f.Path
+		maxFiles := 8
+		if m.filesExpanded {
+			maxFiles = 50
+		}
 
-			// Smart path truncation - keep filename, truncate directories
-			maxLen := width - 12
-			if maxLen < 20 {
-				maxLen = 20
+		for i, f := range m.changedFiles {
+			if i >= maxFiles {
+				remaining := len(m.changedFiles) - maxFiles
+				files = append(files, subtitleStyle.Render(fmt.Sprintf("  ...and %d more", remaining)))
+				break
+			}
+
+			path := f.Path
+			maxLen := width - 8
+			if maxLen < 30 {
+				maxLen = 30
 			}
 			if len(path) > maxLen {
-				// Show ...end of path
 				path = "..." + path[len(path)-maxLen+3:]
 			}
 
+			var styledLine string
 			switch f.Status {
 			case "M", "MM":
-				statusLabel = "M "
-				styledLine = fileModifiedStyle.Render(statusLabel + path)
+				styledLine = fileModifiedStyle.Render("M " + path)
 			case "A", "AM":
-				statusLabel = "+ "
-				styledLine = fileAddedStyle.Render(statusLabel + path)
+				styledLine = fileAddedStyle.Render("+ " + path)
 			case "D":
-				statusLabel = "- "
-				styledLine = fileDeletedStyle.Render(statusLabel + path)
+				styledLine = fileDeletedStyle.Render("- " + path)
 			case "R":
-				statusLabel = "R "
-				styledLine = fileModifiedStyle.Render(statusLabel + path)
+				styledLine = fileModifiedStyle.Render("R " + path)
 			case "??":
-				statusLabel = "? "
-				styledLine = fileUntrackedStyle.Render(statusLabel + path)
+				styledLine = fileUntrackedStyle.Render("? " + path)
 			default:
-				statusLabel = "● "
-				styledLine = fileUntrackedStyle.Render(statusLabel + path)
+				styledLine = fileUntrackedStyle.Render("● " + path)
 			}
 			files = append(files, "  "+styledLine)
 		}
-		// Limit files to avoid overflow
-		if len(files) > 10 {
-			remaining := len(files) - 10
-			files = files[:10]
-			files = append(files, subtitleStyle.Render(fmt.Sprintf("     ...and %d more", remaining)))
-		}
-		content = lipgloss.JoinVertical(lipgloss.Left, files...)
+		fileList = lipgloss.JoinVertical(lipgloss.Left, files...)
 	} else {
-		// "All Clear" State
-		content = lipgloss.JoinVertical(lipgloss.Center,
-			"\n",
-			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSub)).Render("No changed files"),
-			lipgloss.NewStyle().Foreground(lipgloss.Color(colorSuccess)).Render("Everything is clean"),
-		)
+		fileList = lipgloss.NewStyle().
+			Foreground(lipgloss.Color(colorSuccess)).
+			Render("  ✓ Working tree clean")
 	}
 
-	// 3. Copilot / Guide Card (Prominent)
-	guideContent := ""
-	if m.cursor >= 0 && m.cursor < len(m.items) {
-		item := m.items[m.cursor]
-
-		// Contextual Tip
-		tip := m.suggestion
-		if tip != "" {
-			tip = strings.TrimPrefix(tip, "suggestion: ")
-		} else {
-			tip = item.guide
-		}
-
-		guideContent = cardStyle.Width(width - 4).Render(
-			lipgloss.JoinVertical(lipgloss.Left,
-				lipgloss.JoinHorizontal(lipgloss.Left,
-					tipPrefixStyle.Render("TIP"),
-					titleStyle.Render(item.title),
-				),
-				lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Render(tip),
-			),
-		)
-	}
+	// 4. Contextual Tip (based on actual state, not menu)
+	tip := getContextualTip(m)
+	tipCard := cardStyle.Width(width - 4).Render(
+		lipgloss.JoinVertical(lipgloss.Left,
+			tipPrefixStyle.Render("NEXT"),
+			lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Render(tip),
+		),
+	)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		header,
-		content,
+		branchLine,
 		"\n",
-		guideContent,
+		filesHeader,
+		fileList,
+		"\n",
+		tipCard,
 	)
+}
+
+// getContextualTip returns workflow advice based on current git/graphite state
+func getContextualTip(m model) string {
+	// Not initialized
+	if !m.gtInitialized {
+		return "Press [i] to initialize Graphite in this repo"
+	}
+
+	// On main branch
+	if m.onMain {
+		if len(m.changedFiles) > 0 {
+			return "Press [s] to save changes to a new branch"
+		}
+		return "Press [s] to start new work"
+	}
+
+	// On a feature branch
+	if len(m.changedFiles) > 0 {
+		return "Press [f] to add to current commit, or [s] for a new stacked branch"
+	}
+
+	// No changes, check sync status
+	if m.ahead > 0 {
+		return "Press [p] to submit for review → get a preview build"
+	}
+
+	if m.behind > 0 {
+		return "Press [y] to sync with latest changes from your team"
+	}
+
+	// All synced up
+	return "All synced! Press [d] when your PR is approved to merge"
 }
 
 func renderWizardStage(m model) string {
@@ -600,14 +594,14 @@ func renderInputStage(m model) string {
 	desc := "Enter value below"
 
 	if m.isGhostFix {
-		title = "👻 Rescue Mode (Ghost Fix)"
+		title = "Rescue Mode (Ghost Fix)"
 		desc = "Working on a merged branch? Name a new branch to save your work:"
 	} else if m.cursor >= 0 && m.cursor < len(m.items) {
 		title = m.items[m.cursor].title
 	}
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Foreground(lipgloss.Color(colorError)).Bold(true).Render(title),
+		lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render(title),
 		subtitleStyle.Render(desc),
 		"\n",
 		inputBoxStyle.Render(m.textInput.View()),
@@ -637,7 +631,7 @@ func renderOutputStage(m model) string {
 			tipBox,
 			"\n",
 			titleStyle.Render("What's next?"),
-			menuSelectedStyle.Render("❯ [p] Share & Create PR  (recommended)"),
+			menuSelectedStyle.Render("❯ [y] Share & Create PR  (recommended)"),
 			menuItemStyle.Render("  [n] Continue Working"),
 			menuItemStyle.Render("  [f] Fix (Amend)"),
 		)
@@ -740,11 +734,8 @@ func renderHelpStage() string {
 		navSection,
 		"  g  GPS        Visual stack map - see all branches",
 		"  x  Rescue     Ghost fix - save work from merged branch",
-		"  m  Menu       Full command menu",
+		"  Tab Expand    Show/hide full file list",
 		"  ?  Help       This screen",
-		"  ↑↓ Navigate   Move selection up/down",
-		"  ⏎  Select     Confirm selection",
-		"  ⎋  Back       Cancel / go back",
 		"\n",
 		settingsSection,
 		"  i  Init       Set up Graphite (first time only)",

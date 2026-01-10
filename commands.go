@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -208,6 +209,180 @@ func executeSync(skipHooks bool) tea.Cmd {
 			output:  "Sync complete!",
 		}
 	})
+}
+
+// executeTurboShip does an auto-commit with a timestamp message and immediately submits
+// This is for the fast AI workflow: code → ship → preview
+func executeTurboShip(skipHooks bool) tea.Cmd {
+	return func() tea.Msg {
+		// Generate a simple timestamp-based commit message
+		timestamp := time.Now().Format("Jan 2 15:04")
+		commitMsg := "wip: " + timestamp
+
+		// Step 1: Create commit
+		args := []string{"create", "-a", "--no-interactive", "-m", commitMsg}
+		if skipHooks {
+			args = append(args, "--no-verify")
+		}
+		cmd := exec.Command("gt", args...)
+		cmd.Env = getNonInteractiveEnv()
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return cmdFinishedMsg{
+				output:  stdout.String(),
+				stderr:  stderr.String(),
+				err:     err,
+				command: "turbo ship (commit)",
+			}
+		}
+
+		// Step 2: Submit for PR
+		submitArgs := []string{"submit", "--no-interactive"}
+		if skipHooks {
+			submitArgs = append(submitArgs, "--no-verify")
+		}
+		submitCmd := exec.Command("gt", submitArgs...)
+		submitCmd.Env = getNonInteractiveEnv()
+
+		stdout.Reset()
+		stderr.Reset()
+		submitCmd.Stdout = &stdout
+		submitCmd.Stderr = &stderr
+
+		err := submitCmd.Run()
+		output := stdout.String()
+		if output == "" {
+			output = "Shipped! PR submitted for preview."
+		}
+
+		return cmdFinishedMsg{
+			output:  output,
+			stderr:  stderr.String(),
+			err:     err,
+			command: "turbo ship",
+		}
+	}
+}
+
+// executeIterate amends the last commit and pushes to update the PR preview
+func executeIterate(skipHooks bool) tea.Cmd {
+	return func() tea.Msg {
+		// Step 1: Amend the commit
+		args := []string{"modify", "-a", "--no-interactive", "--no-edit"}
+		if skipHooks {
+			args = append(args, "--no-verify")
+		}
+		cmd := exec.Command("gt", args...)
+		cmd.Env = getNonInteractiveEnv()
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		if err := cmd.Run(); err != nil {
+			return cmdFinishedMsg{
+				output:  stdout.String(),
+				stderr:  stderr.String(),
+				err:     err,
+				command: "iterate (amend)",
+			}
+		}
+
+		// Step 2: Push to update PR
+		submitArgs := []string{"submit", "--no-interactive"}
+		if skipHooks {
+			submitArgs = append(submitArgs, "--no-verify")
+		}
+		submitCmd := exec.Command("gt", submitArgs...)
+		submitCmd.Env = getNonInteractiveEnv()
+
+		stdout.Reset()
+		stderr.Reset()
+		submitCmd.Stdout = &stdout
+		submitCmd.Stderr = &stderr
+
+		err := submitCmd.Run()
+		output := stdout.String()
+		if output == "" {
+			output = "Iterated! Changes pushed to PR."
+		}
+
+		return cmdFinishedMsg{
+			output:  output,
+			stderr:  stderr.String(),
+			err:     err,
+			command: "iterate",
+		}
+	}
+}
+
+// executeHardReset discards all uncommitted changes
+func executeHardReset() tea.Cmd {
+	return func() tea.Msg {
+		// Reset tracked files
+		resetCmd := exec.Command("git", "reset", "--hard", "HEAD")
+		resetCmd.Env = getNonInteractiveEnv()
+
+		var stdout, stderr bytes.Buffer
+		resetCmd.Stdout = &stdout
+		resetCmd.Stderr = &stderr
+
+		if err := resetCmd.Run(); err != nil {
+			return cmdFinishedMsg{
+				output:  stdout.String(),
+				stderr:  stderr.String(),
+				err:     err,
+				command: "hard reset",
+			}
+		}
+
+		// Clean untracked files
+		cleanCmd := exec.Command("git", "clean", "-fd")
+		cleanCmd.Env = getNonInteractiveEnv()
+
+		stdout.Reset()
+		stderr.Reset()
+		cleanCmd.Stdout = &stdout
+		cleanCmd.Stderr = &stderr
+
+		err := cleanCmd.Run()
+
+		return cmdFinishedMsg{
+			output:  "Reset complete! All changes discarded.",
+			stderr:  stderr.String(),
+			err:     err,
+			command: "hard reset",
+		}
+	}
+}
+
+// executeUndo reverses the last Graphite operation
+func executeUndo() tea.Cmd {
+	return func() tea.Msg {
+		cmd := exec.Command("gt", "undo", "--no-interactive")
+		cmd.Env = getNonInteractiveEnv()
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err := cmd.Run()
+		output := stdout.String()
+		if output == "" && err == nil {
+			output = "Undo complete!"
+		}
+
+		return cmdFinishedMsg{
+			output:  output,
+			stderr:  stderr.String(),
+			err:     err,
+			command: "gt undo",
+		}
+	}
 }
 
 // executeCheckout switches to a different branch using direct gt command (no shell injection)

@@ -366,7 +366,12 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		// Execute the selected menu item
+		// Turbo Ship: if there are changes, auto-commit + submit
+		if len(m.changedFiles) > 0 {
+			m.state = viewRunning
+			return m, executeTurboShip(m.skipHooks)
+		}
+		// Otherwise execute the selected menu item
 		return m.executeSelectedMenuItem()
 
 	case "i": // Init Graphite
@@ -383,9 +388,9 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		m.state = viewRunning
 		return m, executeSubmit(m.skipHooks)
 
-	case "f": // Fix
+	case "f": // Iterate (amend + push)
 		m.state = viewRunning
-		return m, executeInteractive("gt modify -a --no-interactive --no-edit", "", m.skipHooks)
+		return m, executeIterate(m.skipHooks)
 
 	case "y": // Sync
 		m.state = viewRunning
@@ -438,6 +443,20 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 	case "tab": // Toggle file list expansion
 		m.filesExpanded = !m.filesExpanded
 		return m, nil
+
+	case "R": // Hard Reset - show confirmation first
+		if len(m.changedFiles) > 0 {
+			m.confirmAction = "reset"
+			m.state = viewConfirm
+			return m, nil
+		}
+		m.flashMessage = "Nothing to reset - working tree is clean"
+		m.flashExpiry = time.Now().Add(3 * time.Second)
+		return m, nil
+
+	case "z": // Undo last Graphite operation
+		m.state = viewRunning
+		return m, executeUndo()
 	}
 
 	return m, nil
@@ -671,6 +690,9 @@ func (m model) handleConfirmKeys(key string) (tea.Model, tea.Cmd) {
 		case "ghost":
 			m.state = viewRunning
 			return m, executeGhostFix(m.confirmBranch, m.skipHooks)
+		case "reset":
+			m.state = viewRunning
+			return m, executeHardReset()
 		}
 		m.state = viewDashboard
 		return m, nil

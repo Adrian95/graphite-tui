@@ -271,8 +271,8 @@ func executeTurboShip(skipHooks bool) tea.Cmd {
 // executeIterate amends the last commit and pushes to update the PR preview
 func executeIterate(skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
-		// Step 1: Amend the commit
-		args := []string{"modify", "-a", "--no-interactive", "--no-edit"}
+		// Step 1: Amend the commit (gt modify preserves message by default)
+		args := []string{"modify", "-a", "--no-interactive"}
 		if skipHooks {
 			args = append(args, "--no-verify")
 		}
@@ -554,7 +554,7 @@ func getMenuItems() []menuItem {
 			title:   "Fix",
 			desc:    "Amend changes",
 			guide:   "Made a small mistake? This updates your last commit without creating a new one.",
-			command: "gt modify -a --no-interactive --no-edit",
+			command: "gt modify -a --no-interactive",
 			key:     "f",
 		},
 		{

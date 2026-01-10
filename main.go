@@ -772,7 +772,7 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	case "f": // Fix - amend the commit
 		m.justCommitted = false
 		m.state = viewRunning
-		return m, executeInteractive("gt modify -a --no-interactive --no-edit", "", m.skipHooks)
+		return m, executeInteractive("gt modify -a --no-interactive", "", m.skipHooks)
 	}
 
 	return m, nil

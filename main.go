@@ -772,7 +772,7 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	case "f": // Fix - amend the commit
 		m.justCommitted = false
 		m.state = viewRunning
-		return m, executeInteractive("gt modify -a --no-interactive", "", m.skipHooks)
+		return m, executeFix(m.skipHooks)
 	}
 
 	return m, nil
@@ -856,7 +856,13 @@ func (m model) executeSelectedMenuItem() (tea.Model, tea.Cmd) {
 		return m, textinput.Blink
 	}
 
+	if selected.title == "Fix" {
+		m.state = viewRunning
+		return m, executeFix(m.skipHooks)
+	}
+
 	// Done requires confirmation
+
 	if selected.title == "Done" {
 		m.confirmAction = "merge"
 		m.state = viewConfirm

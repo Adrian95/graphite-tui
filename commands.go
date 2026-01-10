@@ -271,8 +271,16 @@ func executeTurboShip(skipHooks bool) tea.Cmd {
 // executeIterate amends the last commit and pushes to update the PR preview
 func executeIterate(skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
-		// Step 1: Amend the commit (gt modify preserves message by default)
-		args := []string{"modify", "-a", "--no-interactive"}
+		// Step 1: Get the current commit message to preserve it
+		msgCmd := exec.Command("git", "log", "-1", "--format=%B")
+		msgOut, err := msgCmd.Output()
+		commitMsg := strings.TrimSpace(string(msgOut))
+		if err != nil || commitMsg == "" {
+			commitMsg = "wip: " + time.Now().Format("Jan 2 15:04")
+		}
+
+		// Step 2: Amend the commit with the preserved message
+		args := []string{"modify", "-a", "--no-interactive", "-m", commitMsg}
 		if skipHooks {
 			args = append(args, "--no-verify")
 		}
@@ -292,7 +300,7 @@ func executeIterate(skipHooks bool) tea.Cmd {
 			}
 		}
 
-		// Step 2: Push to update PR
+		// Step 3: Push to update PR
 		submitArgs := []string{"submit", "--no-interactive"}
 		if skipHooks {
 			submitArgs = append(submitArgs, "--no-verify")
@@ -305,7 +313,7 @@ func executeIterate(skipHooks bool) tea.Cmd {
 		submitCmd.Stdout = &stdout
 		submitCmd.Stderr = &stderr
 
-		err := submitCmd.Run()
+		err = submitCmd.Run()
 		output := stdout.String()
 		if output == "" {
 			output = "Iterated! Changes pushed to PR."
@@ -320,7 +328,46 @@ func executeIterate(skipHooks bool) tea.Cmd {
 	}
 }
 
+// executeFix amends the last commit preserving the message (without pushing)
+func executeFix(skipHooks bool) tea.Cmd {
+	return func() tea.Msg {
+		// Step 1: Get the current commit message to preserve it
+		msgCmd := exec.Command("git", "log", "-1", "--format=%B")
+		msgOut, err := msgCmd.Output()
+		commitMsg := strings.TrimSpace(string(msgOut))
+		if err != nil || commitMsg == "" {
+			commitMsg = "wip: " + time.Now().Format("Jan 2 15:04")
+		}
+
+		// Step 2: Amend the commit with the preserved message
+		args := []string{"modify", "-a", "--no-interactive", "-m", commitMsg}
+		if skipHooks {
+			args = append(args, "--no-verify")
+		}
+		cmd := exec.Command("gt", args...)
+		cmd.Env = getNonInteractiveEnv()
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		err = cmd.Run()
+		output := stdout.String()
+		if output == "" && err == nil {
+			output = "Fix complete! Commit amended."
+		}
+
+		return cmdFinishedMsg{
+			output:  output,
+			stderr:  stderr.String(),
+			err:     err,
+			command: "gt modify",
+		}
+	}
+}
+
 // executeHardReset discards all uncommitted changes
+
 func executeHardReset() tea.Cmd {
 	return func() tea.Msg {
 		// Reset tracked files
@@ -554,7 +601,7 @@ func getMenuItems() []menuItem {
 			title:   "Fix",
 			desc:    "Amend changes",
 			guide:   "Made a small mistake? This updates your last commit without creating a new one.",
-			command: "gt modify -a --no-interactive",
+			command: "",
 			key:     "f",
 		},
 		{

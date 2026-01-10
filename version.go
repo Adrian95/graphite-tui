@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	currentVersion = "v1.8.6"
+	currentVersion = "v1.8.7"
 	repoOwner      = "Adrian95"
 	repoName       = "graphite-tui"
 	githubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"

@@ -203,23 +203,28 @@ func renderSidebar(m model, width int) string {
 
 	version := subtitleStyle.Render(GetCurrentVersion())
 
-	// Speed Box - quick actions for AI workflow
-	var speedActions []string
-
-	if len(m.changedFiles) > 0 {
-		speedActions = append(speedActions,
-			menuSelectedStyle.Render("⏎")+" "+lipgloss.NewStyle().Foreground(lipgloss.Color(colorFg)).Render("Ship it"),
-			menuItemStyle.Render("f")+" "+menuItemStyle.Render("Iterate"),
-			menuItemStyle.Render("R")+" "+menuItemStyle.Render("Reset"),
-		)
-	} else {
-		speedActions = append(speedActions,
-			menuItemStyle.Render("⏎")+" "+subtitleStyle.Render("Ship it"),
-			menuItemStyle.Render("f")+" "+subtitleStyle.Render("Iterate"),
-			menuItemStyle.Render("R")+" "+subtitleStyle.Render("Reset"),
-		)
+	// Speed Box - quick actions for AI workflow with cursor navigation
+	speedItems := []struct {
+		key   string
+		label string
+	}{
+		{"⏎", "Ship"},
+		{"f", "Iterate"},
+		{"R", "Reset"},
+		{"z", "Undo"},
 	}
-	speedActions = append(speedActions, menuItemStyle.Render("z")+" "+menuItemStyle.Render("Undo"))
+
+	var speedActions []string
+	for i, item := range speedItems {
+		var line string
+		if i == m.speedCursor {
+			// Selected item
+			line = menuSelectedStyle.Render("❯ "+item.key) + " " + menuSelectedStyle.Render(item.label)
+		} else {
+			line = menuItemStyle.Render("  "+item.key) + " " + menuItemStyle.Render(item.label)
+		}
+		speedActions = append(speedActions, line)
+	}
 
 	speedContent := lipgloss.JoinVertical(lipgloss.Left, speedActions...)
 	speedBox := boxStyle.Width(width - 2).Render(
@@ -362,33 +367,43 @@ func renderDashboardMain(m model, width int) string {
 	)
 }
 
-// getContextualTip returns workflow advice based on current git/graphite state
+// getContextualTip returns context-aware tip based on selected speed action and git state
 func getContextualTip(m model) string {
 	if !m.gtInitialized {
 		return "Press [i] to initialize Graphite"
 	}
 
-	if m.onMain {
-		if len(m.changedFiles) > 0 {
-			return "[s] to save to new branch"
+	hasChanges := len(m.changedFiles) > 0
+
+	switch m.speedCursor {
+	case 0: // Ship
+		if hasChanges {
+			if m.onMain {
+				return "Creates branch → commits → submits PR"
+			}
+			return "Amends commit → pushes → updates PR"
+		} else if m.ahead > 0 {
+			return "Submits PR for review"
 		}
-		return "[s] to start new work"
+		return "Nothing to ship"
+
+	case 1: // Iterate
+		if hasChanges {
+			return "Adds changes to last commit → pushes"
+		}
+		return "Nothing to amend"
+
+	case 2: // Reset
+		if hasChanges {
+			return "Discards ALL uncommitted changes"
+		}
+		return "Working tree is clean"
+
+	case 3: // Undo
+		return "Reverses last Graphite operation"
 	}
 
-	// On a feature branch
-	if len(m.changedFiles) > 0 {
-		return "[⏎] ship it  [f] iterate  [R] reset"
-	}
-
-	if m.ahead > 0 {
-		return "[p] submit PR → preview build"
-	}
-
-	if m.behind > 0 {
-		return "[y] sync latest changes"
-	}
-
-	return "[d] merge when approved"
+	return "[↑↓] navigate  [⏎] execute"
 }
 
 func renderWizardStage(m model) string {
@@ -656,7 +671,7 @@ func renderStackStage(m model) string {
 }
 
 func renderHelpStage() string {
-	speedSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("SPEED (AI workflow)")
+	speedSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("SPEED (↑↓ to select, ⏎ to run)")
 	workflowSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("WORKFLOW")
 	navSection := lipgloss.NewStyle().Foreground(lipgloss.Color(colorAccent)).Bold(true).Render("NAVIGATION")
 
@@ -664,13 +679,13 @@ func renderHelpStage() string {
 		titleStyle.Render("Help"),
 		"",
 		speedSection,
-		"  ⏎   Ship      Auto-commit + submit PR (when changes exist)",
-		"  f   Iterate   Amend + push (update preview)",
-		"  R   Reset     Discard all changes",
-		"  z   Undo      Reverse last Graphite operation",
+		"  Ship     Smart: creates OR amends based on context",
+		"  Iterate  Amend last commit + push to update PR",
+		"  Reset    Discard all uncommitted changes",
+		"  Undo     Reverse last Graphite operation",
 		"",
 		workflowSection,
-		"  s   Start     Create new branch + commit",
+		"  s   Start     Create new branch + commit (wizard)",
 		"  p   Share     Submit PR → preview build",
 		"  y   Sync      Pull latest from team",
 		"  d   Done      Merge approved PR",

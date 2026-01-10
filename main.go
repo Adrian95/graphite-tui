@@ -118,6 +118,9 @@ type model struct {
 
 	// File list expansion
 	filesExpanded bool
+
+	// Speed box navigation (0=Ship, 1=Iterate, 2=Reset, 3=Undo)
+	speedCursor int
 }
 
 func initialModel() model {
@@ -352,27 +355,22 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 
-	// Menu navigation - arrow keys work directly in dashboard
+	// Speed box navigation
 	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
+		if m.speedCursor > 0 {
+			m.speedCursor--
 		}
 		return m, nil
 
 	case "down", "j":
-		if m.cursor < len(m.items)-1 {
-			m.cursor++
+		if m.speedCursor < 3 {
+			m.speedCursor++
 		}
 		return m, nil
 
 	case "enter":
-		// Turbo Ship: if there are changes, auto-commit + submit
-		if len(m.changedFiles) > 0 {
-			m.state = viewRunning
-			return m, executeTurboShip(m.skipHooks)
-		}
-		// Otherwise execute the selected menu item
-		return m.executeSelectedMenuItem()
+		// Execute selected speed action with smart behavior
+		return m.executeSpeedAction()
 
 	case "i": // Init Graphite
 		m.state = viewRunning
@@ -775,6 +773,56 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 		m.justCommitted = false
 		m.state = viewRunning
 		return m, executeInteractive("gt modify -a --no-interactive --no-edit", "", m.skipHooks)
+	}
+
+	return m, nil
+}
+
+// executeSpeedAction handles the selected speed action with smart context-aware behavior
+func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
+	switch m.speedCursor {
+	case 0: // Ship
+		if len(m.changedFiles) > 0 {
+			if m.onMain {
+				// On main with changes → create new branch + commit + submit
+				m.state = viewRunning
+				return m, executeTurboShip(m.skipHooks)
+			}
+			// On feature branch with changes → amend + submit
+			m.state = viewRunning
+			return m, executeIterate(m.skipHooks)
+		} else if m.ahead > 0 {
+			// No changes but have unpushed commits → just submit
+			m.state = viewRunning
+			return m, executeSubmit(m.skipHooks)
+		}
+		// Nothing to ship
+		m.flashMessage = "Nothing to ship - no changes or unpushed commits"
+		m.flashExpiry = time.Now().Add(3 * time.Second)
+		return m, nil
+
+	case 1: // Iterate
+		if len(m.changedFiles) > 0 {
+			m.state = viewRunning
+			return m, executeIterate(m.skipHooks)
+		}
+		m.flashMessage = "Nothing to amend - no changes"
+		m.flashExpiry = time.Now().Add(3 * time.Second)
+		return m, nil
+
+	case 2: // Reset
+		if len(m.changedFiles) > 0 {
+			m.confirmAction = "reset"
+			m.state = viewConfirm
+			return m, nil
+		}
+		m.flashMessage = "Nothing to reset - working tree is clean"
+		m.flashExpiry = time.Now().Add(3 * time.Second)
+		return m, nil
+
+	case 3: // Undo
+		m.state = viewRunning
+		return m, executeUndo()
 	}
 
 	return m, nil

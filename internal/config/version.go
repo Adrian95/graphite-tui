@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"encoding/json"
@@ -16,14 +16,14 @@ import (
 )
 
 const (
-	currentVersion = "v1.8.9"
-	repoOwner      = "Adrian95"
-	repoName       = "graphite-tui"
-	githubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"
+	CurrentVersion = "v1.9.0"
+	RepoOwner      = "Adrian95"
+	RepoName       = "graphite-tui"
+	GithubAPI      = "https://api.github.com/repos/%s/%s/releases/latest"
 )
 
-// isDevBuild checks if this binary was built locally (go run/build) vs installed (go install)
-func isDevBuild() bool {
+// IsDevBuild checks if this binary was built locally (go run/build) vs installed (go install)
+func IsDevBuild() bool {
 	info, ok := debug.ReadBuildInfo()
 	if !ok {
 		return true // Can't read build info, assume dev
@@ -35,33 +35,33 @@ func isDevBuild() bool {
 
 // --- Version Messages ---
 
-type versionCheckMsg struct {
-	latestVersion string
-	err           error
+type VersionCheckMsg struct {
+	LatestVersion string
+	Err           error
 }
 
-type updateCompleteMsg struct {
-	success bool
-	err     error
-	message string
+type UpdateCompleteMsg struct {
+	Success bool
+	Err     error
+	Message string
 }
 
-type uninstallCompleteMsg struct {
-	success bool
-	err     error
+type UninstallCompleteMsg struct {
+	Success bool
+	Err     error
 }
 
 // --- Version Checking ---
 
-// checkForUpdates queries GitHub API for the latest release
-func checkForUpdates() tea.Cmd {
+// CheckForUpdates queries GitHub API for the latest release
+func CheckForUpdates() tea.Cmd {
 	return func() tea.Msg {
-		url := fmt.Sprintf(githubAPI, repoOwner, repoName)
+		url := fmt.Sprintf(GithubAPI, RepoOwner, RepoName)
 
 		client := &http.Client{Timeout: 5 * time.Second}
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			return versionCheckMsg{err: err}
+			return VersionCheckMsg{Err: err}
 		}
 
 		req.Header.Set("Accept", "application/vnd.github.v3+json")
@@ -69,12 +69,12 @@ func checkForUpdates() tea.Cmd {
 
 		resp, err := client.Do(req)
 		if err != nil {
-			return versionCheckMsg{err: err}
+			return VersionCheckMsg{Err: err}
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode != 200 {
-			return versionCheckMsg{err: fmt.Errorf("GitHub API returned %d", resp.StatusCode)}
+			return VersionCheckMsg{Err: fmt.Errorf("GitHub API returned %d", resp.StatusCode)}
 		}
 
 		var release struct {
@@ -82,24 +82,24 @@ func checkForUpdates() tea.Cmd {
 		}
 
 		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-			return versionCheckMsg{err: err}
+			return VersionCheckMsg{Err: err}
 		}
 
-		return versionCheckMsg{latestVersion: release.TagName}
+		return VersionCheckMsg{LatestVersion: release.TagName}
 	}
 }
 
-// performUpdate updates the tool to the latest version
+// PerformUpdate updates the tool to the latest version
 // It handles identifying the correct installation path and replacing the running binary
-func performUpdate() tea.Cmd {
+func PerformUpdate() tea.Cmd {
 	return func() tea.Msg {
 		// 1. Check if Go is installed
 		goPath, err := exec.LookPath("go")
 		if err != nil {
-			return updateCompleteMsg{
-				success: false,
-				err:     err,
-				message: `Go is not installed!
+			return UpdateCompleteMsg{
+				Success: false,
+				Err:     err,
+				Message: `Go is not installed!
 
 To install graphite-tui, you need Go first:
 
@@ -125,7 +125,7 @@ To install graphite-tui, you need Go first:
 		targetBinary := filepath.Join(installDir, "graphite-tui")
 
 		// 3. Run go install to update the global binary (with GOPROXY=direct to bypass cache)
-		installPath := fmt.Sprintf("github.com/%s/%s@latest", repoOwner, repoName)
+		installPath := fmt.Sprintf("github.com/%s/%s@latest", RepoOwner, RepoName)
 		cmd := exec.Command(goPath, "install", installPath)
 		cmd.Env = append(os.Environ(), "GOPROXY=direct")
 		output, err := cmd.CombinedOutput()
@@ -134,10 +134,10 @@ To install graphite-tui, you need Go first:
 			if errMsg == "" {
 				errMsg = err.Error()
 			}
-			return updateCompleteMsg{
-				success: false,
-				err:     err,
-				message: fmt.Sprintf("Update failed: %s\n\nTry manually:\n  go install %s", errMsg, installPath),
+			return UpdateCompleteMsg{
+				Success: false,
+				Err:     err,
+				Message: fmt.Sprintf("Update failed: %s\n\nTry manually:\n  go install %s", errMsg, installPath),
 			}
 		}
 
@@ -145,9 +145,9 @@ To install graphite-tui, you need Go first:
 		currentExe, err := os.Executable()
 		if err != nil {
 			// Can't identify self, assume success if go install worked
-			return updateCompleteMsg{
-				success: true,
-				message: "Update installed globally! If you are running a local copy, please restart from the global path.",
+			return UpdateCompleteMsg{
+				Success: true,
+				Message: "Update installed globally! If you are running a local copy, please restart from the global path.",
 			}
 		}
 
@@ -170,9 +170,9 @@ To install graphite-tui, you need Go first:
 		// Read the new binary
 		input, err := os.ReadFile(targetBinary)
 		if err != nil {
-			return updateCompleteMsg{
-				success: true,
-				message: fmt.Sprintf("Updated globally to %s\n(Could not read new binary to replace current execution)", targetBinary),
+			return UpdateCompleteMsg{
+				Success: true,
+				Message: fmt.Sprintf("Updated globally to %s\n(Could not read new binary to replace current execution)", targetBinary),
 			}
 		}
 
@@ -185,24 +185,24 @@ To install graphite-tui, you need Go first:
 		if err != nil {
 			// Restore if write failed
 			_ = os.Rename(oldPath, currentExe)
-			return updateCompleteMsg{
-				success: true,
-				message: fmt.Sprintf("Updated globally to %s\n(Note: Could not replace currently running file at %s)", targetBinary, currentExe),
+			return UpdateCompleteMsg{
+				Success: true,
+				Message: fmt.Sprintf("Updated globally to %s\n(Note: Could not replace currently running file at %s)", targetBinary, currentExe),
 			}
 		}
 
 		// Cleanup old file
 		_ = os.Remove(oldPath)
 
-		return updateCompleteMsg{
-			success: true,
-			message: fmt.Sprintf("Update complete! Replaced binary at %s\nPlease restart the application.", currentExe),
+		return UpdateCompleteMsg{
+			Success: true,
+			Message: fmt.Sprintf("Update complete! Replaced binary at %s\nPlease restart the application.", currentExe),
 		}
 	}
 }
 
-// performUninstall removes the tool
-func performUninstall() tea.Cmd {
+// PerformUninstall removes the tool
+func PerformUninstall() tea.Cmd {
 	return func() tea.Msg {
 		// Find the binary location
 		binaryPath, err := exec.LookPath("graphite-tui")
@@ -218,13 +218,13 @@ func performUninstall() tea.Cmd {
 
 		// Remove the binary
 		if err := os.Remove(binaryPath); err != nil {
-			return uninstallCompleteMsg{
-				success: false,
-				err:     fmt.Errorf("failed to remove %s: %v", binaryPath, err),
+			return UninstallCompleteMsg{
+				Success: false,
+				Err:     fmt.Errorf("failed to remove %s: %v", binaryPath, err),
 			}
 		}
 
-		return uninstallCompleteMsg{success: true}
+		return UninstallCompleteMsg{Success: true}
 	}
 }
 
@@ -267,8 +267,8 @@ func parseVersion(v string) (major, minor, patch int, ok bool) {
 	return major, minor, patch, true
 }
 
-// isNewerVersion checks if latest is newer than current using proper semver comparison
-func isNewerVersion(current, latest string) bool {
+// IsNewerVersion checks if latest is newer than current using proper semver comparison
+func IsNewerVersion(current, latest string) bool {
 	curMajor, curMinor, curPatch, ok1 := parseVersion(current)
 	latMajor, latMinor, latPatch, ok2 := parseVersion(latest)
 
@@ -298,8 +298,8 @@ func isNewerVersion(current, latest string) bool {
 // GetCurrentVersion returns the current version string
 // Shows "(dev)" suffix when running a locally built binary
 func GetCurrentVersion() string {
-	if isDevBuild() {
-		return currentVersion + " (dev)"
+	if IsDevBuild() {
+		return CurrentVersion + " (dev)"
 	}
-	return currentVersion
+	return CurrentVersion
 }

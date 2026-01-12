@@ -35,11 +35,9 @@ var (
 	SubtitleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ColorSub))
 
-	// Box styles
+	// Box styles (borderless for transparent terminal support)
 	BoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ColorBorder)).
-			Padding(0, 1)
+			PaddingLeft(1)
 
 	BoxTitleStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ColorSub)).
@@ -79,29 +77,23 @@ var (
 				PaddingBottom(1)
 
 	InputBoxStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ColorAccent)).
-			Padding(0, 1).
+			Foreground(lipgloss.Color(ColorFg)).
 			Width(50)
 
 	// Output Window
 	OutputWindowStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(ColorBorder)).
-				Padding(1)
+				Foreground(lipgloss.Color(ColorFg)).
+				PaddingLeft(1)
 
 	// Cards (Tips)
 	CardStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color(ColorBorder)).
-			Padding(0, 1)
+			Foreground(lipgloss.Color(ColorFg)).
+			PaddingLeft(1)
 
-	// Highlight box (transparent-friendly, uses border instead of background)
+	// Highlight box (transparent-friendly)
 	HighlightBoxStyle = lipgloss.NewStyle().
-				Border(lipgloss.RoundedBorder()).
-				BorderForeground(lipgloss.Color(ColorSub)).
 				Foreground(lipgloss.Color(ColorFg)).
-				Padding(0, 1)
+				PaddingLeft(1)
 
 	// Footer bar
 	FooterStyle = lipgloss.NewStyle().

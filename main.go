@@ -211,7 +211,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case config.VersionCheckMsg:
 		m.checkingUpdate = false
-		if msg.Err == nil && config.IsNewerVersion(config.CurrentVersion, msg.LatestVersion) {
+		if msg.Err == nil && config.IsNewerVersion(config.GetCurrentVersion(), msg.LatestVersion) {
 			m.latestVersion = msg.LatestVersion
 			m.updateAvailable = msg.LatestVersion
 			m.dashboardData.UpdateAvailable = msg.LatestVersion
@@ -648,7 +648,7 @@ func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "u":
-		if m.latestVersion != "" && config.IsNewerVersion(config.CurrentVersion, m.latestVersion) {
+		if m.latestVersion != "" && config.IsNewerVersion(config.GetCurrentVersion(), m.latestVersion) {
 			m.stateID = state.Running
 			m.outputData = views.OutputViewData{IsRunning: true, Command: "update"}
 			return m, config.PerformUpdate()
@@ -780,7 +780,7 @@ func (m model) View() string {
 			CurrentVersion: config.GetCurrentVersion(),
 			LatestVersion:  m.latestVersion,
 			IsChecking:     m.checkingUpdate,
-			IsNewer:        m.latestVersion != "" && config.IsNewerVersion(config.CurrentVersion, m.latestVersion),
+			IsNewer:        m.latestVersion != "" && config.IsNewerVersion(config.GetCurrentVersion(), m.latestVersion),
 			SpinnerView:    m.spinner.View(),
 		}
 		return views.RenderCentered(views.RenderUpdate(data))

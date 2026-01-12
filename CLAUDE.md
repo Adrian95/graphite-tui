@@ -4,7 +4,7 @@ This document provides comprehensive guidance for AI assistants working on the G
 
 ## Project Overview
 
-**Graphite TUI** (v1.9.0) is a keyboard-first Terminal User Interface for [Graphite CLI](https://graphite.dev) power users. It eliminates repetitive `gt` commands by providing intuitive keybindings for common stacked PR workflows.
+**Graphite TUI** is a keyboard-first Terminal User Interface for [Graphite CLI](https://graphite.dev) power users. It eliminates repetitive `gt` commands by providing intuitive keybindings for common stacked PR workflows. Version is embedded at build time from git tags (see "Release & Update Architecture" section).
 
 **Tech Stack:**
 - **Language:** Go 1.21+
@@ -222,9 +222,13 @@ var TitleStyle = lipgloss.NewStyle().Bold(true).Foreground(...)
 - `buildNonInteractiveEnv()` - Prevents editor popups
 
 ### internal/config/version.go
-- `CheckForUpdates()` - Queries GitHub releases API
-- `PerformUpdate()` - Runs `go install ...@latest`
+- `GetBuildInfo()` - Returns version, commit, build time from Go's embedded metadata
+- `GetCurrentVersion()` - Returns display version (embedded for installs, fallback+dev for local)
+- `CheckForUpdates()` - Queries GitHub releases API for latest tag
+- `PerformUpdate()` / `PerformUpdateToVersion()` - Runs `go install` with verification
+- `getInstalledBinaryVersion()` - Inspects binary metadata to verify installed version
 - `IsNewerVersion()` - Semantic version comparison
+- `DiagnoseVersionIssue()` - Debug helper for version mismatch issues
 
 ## Graphite CLI Commands Used
 
@@ -282,6 +286,141 @@ Currently no test suite. When adding tests:
 - Unit test command parsing in `internal/git/`
 - Unit test version comparison in `internal/config/`
 - Mock `exec.Command` for command execution tests
+
+## Release & Update Architecture
+
+### Version Management
+
+**CRITICAL: Version is embedded by Go, not hardcoded.**
+
+The application version comes from Go's build system, NOT from a hardcoded constant:
+
+```go
+// internal/config/version.go
+
+// FallbackVersion is ONLY used for local dev builds
+const FallbackVersion = "v0.0.0-dev"
+
+// GetCurrentVersion returns the REAL version from Go's build info
+func GetCurrentVersion() string {
+    info := GetBuildInfo()
+    if info.IsDev {
+        return info.Version + " (dev)"
+    }
+    return info.Version  // e.g., "v1.9.3" from git tag
+}
+```
+
+When users install via `go install github.com/Adrian95/graphite-tui@v1.9.3`, Go automatically embeds `v1.9.3` into the binary via `debug.ReadBuildInfo()`.
+
+**DO NOT:**
+- Manually update version constants for releases
+- Use hardcoded versions for comparisons
+- Assume `FallbackVersion` represents the current release
+
+### Release Process
+
+**Step-by-step release checklist:**
+
+```bash
+# 1. Ensure all changes are committed
+git status  # Should be clean
+
+# 2. Create annotated tag (MUST match semver format)
+git tag -a v1.9.4 -m "Release v1.9.4: Brief description"
+
+# 3. Push the tag to GitHub
+git push origin v1.9.4
+
+# 4. Create GitHub Release
+#    - Go to GitHub → Releases → "Draft a new release"
+#    - Select the tag you just pushed
+#    - Title: "v1.9.4"
+#    - Description: Changelog/release notes
+#    - Publish release
+
+# 5. Verify the release works
+GOPROXY=direct go install github.com/Adrian95/graphite-tui@v1.9.4
+graphite-tui  # Check version displays correctly
+```
+
+**Common Release Mistakes:**
+| Mistake | Symptom | Fix |
+|---------|---------|-----|
+| Tag not pushed | `go install` gets old version | `git push origin <tag>` |
+| Release without tag | GitHub shows release but install fails | Create and push matching tag |
+| Tag format wrong | `v1.9.4` works, `1.9.4` may not | Always use `v` prefix |
+| Proxy cache | Old version despite correct tag | Use `GOPROXY=direct` |
+
+### Update Mechanism
+
+The update system (`internal/config/version.go`) works as follows:
+
+```
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│  Check GitHub   │────▶│ Compare Versions │────▶│  go install     │
+│  Releases API   │     │ (semver parse)   │     │  @latest/tag    │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+                                                          │
+                                                          ▼
+┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
+│ Show result to  │◀────│ Verify installed │◀────│ Copy binary to  │
+│    user         │     │    version       │     │ current path    │
+└─────────────────┘     └──────────────────┘     └─────────────────┘
+```
+
+**Key functions:**
+- `CheckForUpdates()` - Queries GitHub API for latest release tag
+- `PerformUpdate()` - Runs `go install` with `GOPROXY=direct`
+- `getInstalledBinaryVersion()` - Inspects new binary to verify version
+- `GetBuildInfo()` - Returns embedded version, commit, build time
+
+**Update verification:**
+After `go install`, the system verifies the new binary's version matches expected:
+```go
+installedVersion, _ := getInstalledBinaryVersion(targetBinary)
+if normalizeVersion(targetVersion) != normalizeVersion(installedVersion) {
+    // Warning: version mismatch detected
+}
+```
+
+### Build Metadata
+
+The `GetBuildInfo()` function extracts:
+- **Version**: From git tag (e.g., `v1.9.3`)
+- **Commit**: Short SHA from `vcs.revision`
+- **BuildTime**: From `vcs.time`
+- **GoVersion**: Go version used to compile
+- **IsDev**: True if built locally vs installed
+
+```go
+info := config.GetBuildInfo()
+// info.Version = "v1.9.3"
+// info.Commit = "abc1234"
+// info.BuildTime = "2024-01-15T10:30:00Z"
+// info.GoVersion = "go1.21.5"
+// info.IsDev = false
+```
+
+### Troubleshooting Updates
+
+**"Update shows success but version unchanged":**
+1. Check GitHub release has matching git tag
+2. Try: `GOPROXY=direct go install github.com/Adrian95/graphite-tui@latest`
+3. Verify with: `go version -m $(which graphite-tui)`
+
+**"go install gets wrong version":**
+```bash
+# Clear Go module cache and reinstall
+go clean -modcache
+GOPROXY=direct go install github.com/Adrian95/graphite-tui@v1.9.4
+```
+
+**Diagnostic function available:**
+```go
+config.DiagnoseVersionIssue(expected, actual)
+// Returns possible causes: proxy cache, missing tag, etc.
+```
 
 ## Common Patterns
 

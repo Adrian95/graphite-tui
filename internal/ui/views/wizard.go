@@ -82,11 +82,7 @@ func RenderWizardPreview(data WizardViewData) string {
 		fileText += "s"
 	}
 
-	commitBox := lipgloss.NewStyle().
-		Background(lipgloss.Color(ui.ColorHighlight)).
-		Foreground(lipgloss.Color(ui.ColorFg)).
-		Padding(0, 1).
-		Render(data.CommitMessage)
+	commitBox := ui.HighlightBoxStyle.Render(data.CommitMessage)
 
 	tipBox := ui.CardStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left,

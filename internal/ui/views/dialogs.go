@@ -140,7 +140,7 @@ func renderPostCommit(data OutputViewData) string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true).Render("✔ Committed"),
 		"",
-		lipgloss.NewStyle().Background(lipgloss.Color(ui.ColorHighlight)).Padding(0, 1).Render(data.CommitMessage),
+		ui.HighlightBoxStyle.Render(data.CommitMessage),
 		"",
 		tipBox,
 		"",

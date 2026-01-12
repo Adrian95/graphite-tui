@@ -25,7 +25,6 @@ var (
 	// Layout
 	DocStyle = lipgloss.NewStyle().
 			Margin(1, 2).
-			Background(lipgloss.Color(ColorBg)).
 			Foreground(lipgloss.Color(ColorFg))
 
 	// Typography
@@ -96,6 +95,13 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color(ColorBorder)).
 			Padding(0, 1)
+
+	// Highlight box (transparent-friendly, uses border instead of background)
+	HighlightBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color(ColorSub)).
+				Foreground(lipgloss.Color(ColorFg)).
+				Padding(0, 1)
 
 	// Footer bar
 	FooterStyle = lipgloss.NewStyle().

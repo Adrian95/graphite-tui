@@ -285,13 +285,18 @@ func ExecuteSync(skipHooks bool) tea.Cmd {
 
 // ExecuteTurboShip creates a WIP commit and immediately submits
 func ExecuteTurboShip(skipHooks bool) tea.Cmd {
+	return ExecuteTurboShipWithMsg(getDefaultCommitMessage(), skipHooks)
+}
+
+// ExecuteTurboShipWithMsg creates a commit with custom message and immediately submits
+func ExecuteTurboShipWithMsg(commitMsg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		commitMsg := getDefaultCommitMessage()
 
 		// Step 1: Create commit
 		result := executor.Execute(ctx, ExecutionConfig{
-			Command:   "gt create -a --no-interactive -m " + commitMsg,
+			Command:   "gt create -a --no-interactive -m",
+			Args:      []string{commitMsg},
 			SkipHooks: skipHooks,
 			UseShell:  true,
 		})
@@ -315,18 +320,22 @@ func ExecuteTurboShip(skipHooks bool) tea.Cmd {
 
 // ExecuteIterate amends the last commit and pushes
 func ExecuteIterate(skipHooks bool) tea.Cmd {
+	commitMsg := getLastCommitMessage()
+	if commitMsg == "" {
+		commitMsg = getDefaultCommitMessage()
+	}
+	return ExecuteIterateWithMsg(commitMsg, skipHooks)
+}
+
+// ExecuteIterateWithMsg amends the last commit with custom message and pushes
+func ExecuteIterateWithMsg(commitMsg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
-		// Get current commit message
-		commitMsg := getLastCommitMessage()
-		if commitMsg == "" {
-			commitMsg = getDefaultCommitMessage()
-		}
-
 		// Step 1: Amend commit
 		result := executor.Execute(ctx, ExecutionConfig{
-			Command:   "gt modify -a --no-interactive -m " + commitMsg,
+			Command:   "gt modify -a --no-interactive -m",
+			Args:      []string{commitMsg},
 			SkipHooks: skipHooks,
 			UseShell:  true,
 		})
@@ -357,7 +366,8 @@ func ExecuteFix(skipHooks bool) tea.Cmd {
 		}
 
 		result := executor.Execute(context.Background(), ExecutionConfig{
-			Command:   "gt modify -a --no-interactive -m " + commitMsg,
+			Command:   "gt modify -a --no-interactive -m",
+			Args:      []string{commitMsg},
 			SkipHooks: skipHooks,
 			UseShell:  true,
 		})

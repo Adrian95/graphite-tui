@@ -239,6 +239,83 @@ func RenderHelp() string {
 	)
 }
 
+// --- Quick Commit View (lazygit-inspired) ---
+
+// QuickCommitViewData contains quick commit dialog data
+type QuickCommitViewData struct {
+	FileCount  int
+	InputValue string
+	ErrorMsg   string
+	IsAmend    bool // true for iterate, false for new commit
+}
+
+// RenderQuickCommit renders a minimal commit message input
+func RenderQuickCommit(data QuickCommitViewData, inputView string) string {
+	// Title based on mode
+	title := "Ship"
+	if data.IsAmend {
+		title = "Iterate"
+	}
+
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorAccent)).
+		Bold(true)
+
+	// File count badge
+	fileText := fmt.Sprintf("%d file", data.FileCount)
+	if data.FileCount != 1 {
+		fileText += "s"
+	}
+	fileBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorSuccess)).
+		Render(fileText)
+
+	// Header
+	header := lipgloss.JoinHorizontal(lipgloss.Left,
+		titleStyle.Render(title),
+		"  ",
+		fileBadge,
+	)
+
+	// Commit types hint (compact, lazygit style)
+	typeHints := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorSub)).
+		Render("feat: fix: docs: refactor: chore:")
+
+	// Input display
+	inputDisplay := ui.InputBoxStyle.Render(inputView)
+
+	// Error message if any
+	if data.ErrorMsg != "" {
+		inputDisplay = lipgloss.JoinVertical(lipgloss.Left,
+			inputDisplay,
+			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render("  "+data.ErrorMsg),
+		)
+	}
+
+	// Character count
+	charStyle := ui.SubtitleStyle
+	charCount := len(data.InputValue)
+	if charCount > 72 {
+		charStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning))
+	}
+	charIndicator := charStyle.Render(fmt.Sprintf("%d/72", charCount))
+
+	// Footer
+	footer := ui.SubtitleStyle.Render("[Enter] Ship  [Esc] Cancel")
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		typeHints,
+		"",
+		inputDisplay,
+		charIndicator,
+		"",
+		footer,
+	)
+}
+
 // --- Update View ---
 
 // UpdateViewData contains update view data

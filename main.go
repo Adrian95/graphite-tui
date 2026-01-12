@@ -53,6 +53,9 @@ type model struct {
 	// Confirm state
 	confirmData views.ConfirmViewData
 
+	// Quick commit state
+	quickCommitData views.QuickCommitViewData
+
 	// Options
 	skipHooks bool
 
@@ -144,6 +147,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleWizardPreviewKeys(key)
 		case state.Confirm:
 			return m.handleConfirmKeys(key)
+		case state.QuickCommit:
+			return m.handleQuickCommitKeys(key, msg)
 		case state.Stack:
 			return m.handleStackKeys(key)
 		case state.Help:
@@ -610,6 +615,40 @@ func (m model) handleConfirmKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleQuickCommitKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc":
+		m.stateID = state.Dashboard
+		return m, nil
+
+	case "enter":
+		commitMsg := m.textInput.Value()
+		if commitMsg == "" {
+			m.quickCommitData.ErrorMsg = "Message required"
+			return m, nil
+		}
+
+		m.lastCommitMsg = commitMsg
+		m.stateID = state.Running
+		m.outputData = views.OutputViewData{IsRunning: true}
+
+		if m.quickCommitData.IsAmend {
+			m.outputData.Command = "iterate"
+			return m, git.ExecuteIterateWithMsg(commitMsg, m.skipHooks)
+		}
+
+		m.justCommitted = true
+		m.outputData.Command = "turbo ship"
+		return m, git.ExecuteTurboShipWithMsg(commitMsg, m.skipHooks)
+	}
+
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	m.quickCommitData.InputValue = m.textInput.Value()
+	m.quickCommitData.ErrorMsg = "" // Clear error on typing
+	return m, cmd
+}
+
 func (m model) handleStackKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -690,14 +729,15 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 	switch m.dashboardData.SpeedCursor {
 	case 0: // Ship
 		if len(m.dashboardData.ChangedFiles) > 0 {
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true}
-			if m.dashboardData.OnMain {
-				m.outputData.Command = "turbo ship"
-				return m, git.ExecuteTurboShip(m.skipHooks)
+			// Show quick commit wizard
+			m.stateID = state.QuickCommit
+			m.textInput.Reset()
+			m.textInput.Placeholder = "feat: add new feature"
+			m.quickCommitData = views.QuickCommitViewData{
+				FileCount: len(m.dashboardData.ChangedFiles),
+				IsAmend:   !m.dashboardData.OnMain, // Amend if on feature branch
 			}
-			m.outputData.Command = "iterate"
-			return m, git.ExecuteIterate(m.skipHooks)
+			return m, textinput.Blink
 		} else if m.dashboardData.Ahead > 0 {
 			m.stateID = state.Running
 			m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
@@ -708,9 +748,15 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 
 	case 1: // Iterate
 		if len(m.dashboardData.ChangedFiles) > 0 {
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
-			return m, git.ExecuteIterate(m.skipHooks)
+			// Show quick commit wizard in amend mode
+			m.stateID = state.QuickCommit
+			m.textInput.Reset()
+			m.textInput.Placeholder = "fix: update implementation"
+			m.quickCommitData = views.QuickCommitViewData{
+				FileCount: len(m.dashboardData.ChangedFiles),
+				IsAmend:   true,
+			}
+			return m, textinput.Blink
 		}
 		m.setFlash("Nothing to amend - no changes")
 		return m, nil
@@ -761,6 +807,9 @@ func (m model) View() string {
 			InputView:   m.textInput.View(),
 		}
 		return views.RenderCentered(views.RenderInput(data))
+
+	case state.QuickCommit:
+		return views.RenderCentered(views.RenderQuickCommit(m.quickCommitData, m.textInput.View()))
 
 	case state.Confirm:
 		return views.RenderCentered(views.RenderConfirm(m.confirmData))

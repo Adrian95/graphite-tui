@@ -316,6 +316,105 @@ func RenderQuickCommit(data QuickCommitViewData, inputView string) string {
 	)
 }
 
+// --- Commit Choice View (Amend vs Stack) ---
+
+// CommitChoiceViewData contains commit choice dialog data
+type CommitChoiceViewData struct {
+	Branch    string // Current branch name
+	FileCount int    // Number of changed files
+	Selected  int    // 0 = Amend, 1 = Stack
+}
+
+// RenderCommitChoice renders the amend vs stack selection dialog
+func RenderCommitChoice(data CommitChoiceViewData) string {
+	// Title with branch name
+	titleStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorAccent)).
+		Bold(true)
+
+	// File count badge
+	fileText := fmt.Sprintf("%d file", data.FileCount)
+	if data.FileCount != 1 {
+		fileText += "s"
+	}
+	fileBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorSuccess)).
+		Render(fileText)
+
+	header := lipgloss.JoinHorizontal(lipgloss.Left,
+		titleStyle.Render("Ship: "+data.Branch),
+		"  ",
+		fileBadge,
+	)
+
+	// Question
+	question := lipgloss.NewStyle().
+		Foreground(lipgloss.Color(ui.ColorFg)).
+		Render("How do you want to ship these changes?")
+
+	// Option styling
+	selectedStyle := ui.MenuSelectedStyle
+	normalStyle := ui.MenuItemStyle
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSub))
+
+	// Amend option
+	amendTitle := "  Amend current PR"
+	if data.Selected == 0 {
+		amendTitle = "▸ Amend current PR"
+	}
+	amendDesc := []string{
+		"    Updates your existing commit and PR.",
+		"    Reviewers see one unified change.",
+		"    Best for: small fixes, typos, review feedback",
+	}
+
+	// Stack option
+	stackTitle := "  Stack new commit"
+	if data.Selected == 1 {
+		stackTitle = "▸ Stack new commit"
+	}
+	stackDesc := []string{
+		"    Creates a NEW branch & PR on top of this one.",
+		"    Original PR stays unchanged.",
+		"    Best for: separate fix, want distinct review",
+	}
+
+	// Build options
+	var amendOption, stackOption string
+	if data.Selected == 0 {
+		amendOption = selectedStyle.Render(amendTitle)
+	} else {
+		amendOption = normalStyle.Render(amendTitle)
+	}
+	for _, line := range amendDesc {
+		amendOption = lipgloss.JoinVertical(lipgloss.Left, amendOption, descStyle.Render(line))
+	}
+
+	if data.Selected == 1 {
+		stackOption = selectedStyle.Render(stackTitle)
+	} else {
+		stackOption = normalStyle.Render(stackTitle)
+	}
+	for _, line := range stackDesc {
+		stackOption = lipgloss.JoinVertical(lipgloss.Left, stackOption, descStyle.Render(line))
+	}
+
+	// Footer
+	footer := ui.SubtitleStyle.Render("[↑↓] Select  [Enter] Confirm  [Esc] Cancel")
+
+	return lipgloss.JoinVertical(lipgloss.Left,
+		header,
+		"",
+		question,
+		"",
+		amendOption,
+		"",
+		stackOption,
+		"",
+		footer,
+	)
+}
+
 // --- Update View ---
 
 // UpdateViewData contains update view data

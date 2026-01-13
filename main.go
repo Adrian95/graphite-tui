@@ -56,6 +56,9 @@ type model struct {
 	// Quick commit state
 	quickCommitData views.QuickCommitViewData
 
+	// Commit choice state (amend vs stack)
+	commitChoiceData views.CommitChoiceViewData
+
 	// Options
 	skipHooks bool
 
@@ -149,6 +152,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleConfirmKeys(key)
 		case state.QuickCommit:
 			return m.handleQuickCommitKeys(key, msg)
+		case state.CommitChoice:
+			return m.handleCommitChoiceKeys(key)
 		case state.Stack:
 			return m.handleStackKeys(key)
 		case state.Help:
@@ -649,6 +654,39 @@ func (m model) handleQuickCommitKeys(key string, msg tea.Msg) (tea.Model, tea.Cm
 	return m, cmd
 }
 
+func (m model) handleCommitChoiceKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "up", "k":
+		m.commitChoiceData.Selected = 0 // Amend
+		return m, nil
+
+	case "down", "j":
+		m.commitChoiceData.Selected = 1 // Stack
+		return m, nil
+
+	case "enter":
+		// Transition to QuickCommit with the chosen mode
+		m.stateID = state.QuickCommit
+		m.textInput.Reset()
+		if m.commitChoiceData.Selected == 0 {
+			m.textInput.Placeholder = "fix: update implementation"
+		} else {
+			m.textInput.Placeholder = "feat: add new feature"
+		}
+		m.quickCommitData = views.QuickCommitViewData{
+			FileCount: m.commitChoiceData.FileCount,
+			IsAmend:   m.commitChoiceData.Selected == 0,
+		}
+		return m, textinput.Blink
+
+	case "esc", "q":
+		m.stateID = state.Dashboard
+		return m, nil
+	}
+
+	return m, nil
+}
+
 func (m model) handleStackKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -729,15 +767,25 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 	switch m.dashboardData.SpeedCursor {
 	case 0: // Ship
 		if len(m.dashboardData.ChangedFiles) > 0 {
-			// Show quick commit wizard
-			m.stateID = state.QuickCommit
-			m.textInput.Reset()
-			m.textInput.Placeholder = "feat: add new feature"
-			m.quickCommitData = views.QuickCommitViewData{
-				FileCount: len(m.dashboardData.ChangedFiles),
-				IsAmend:   !m.dashboardData.OnMain, // Amend if on feature branch
+			if m.dashboardData.OnMain {
+				// On main: go straight to QuickCommit (create new branch)
+				m.stateID = state.QuickCommit
+				m.textInput.Reset()
+				m.textInput.Placeholder = "feat: add new feature"
+				m.quickCommitData = views.QuickCommitViewData{
+					FileCount: len(m.dashboardData.ChangedFiles),
+					IsAmend:   false,
+				}
+				return m, textinput.Blink
 			}
-			return m, textinput.Blink
+			// On feature branch: show choice dialog (amend vs stack)
+			m.stateID = state.CommitChoice
+			m.commitChoiceData = views.CommitChoiceViewData{
+				Branch:    m.dashboardData.Branch,
+				FileCount: len(m.dashboardData.ChangedFiles),
+				Selected:  0, // Default to Amend
+			}
+			return m, nil
 		} else if m.dashboardData.Ahead > 0 {
 			m.stateID = state.Running
 			m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
@@ -810,6 +858,9 @@ func (m model) View() string {
 
 	case state.QuickCommit:
 		return views.RenderCentered(views.RenderQuickCommit(m.quickCommitData, m.textInput.View()))
+
+	case state.CommitChoice:
+		return views.RenderCentered(views.RenderCommitChoice(m.commitChoiceData))
 
 	case state.Confirm:
 		return views.RenderCentered(views.RenderConfirm(m.confirmData))

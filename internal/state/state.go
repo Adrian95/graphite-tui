@@ -27,6 +27,7 @@ const (
 	Startup
 	PostCommit
 	QuickCommit
+	CommitChoice
 )
 
 // String returns the state name for debugging
@@ -35,7 +36,7 @@ func (s StateID) String() string {
 		"Dashboard", "Menu", "Input", "Running", "Output",
 		"WizardType", "WizardScope", "WizardSummary", "WizardPreview",
 		"Stack", "Help", "Update", "Confirm", "Startup", "PostCommit",
-		"QuickCommit",
+		"QuickCommit", "CommitChoice",
 	}
 	if int(s) < len(names) {
 		return names[s]
@@ -140,7 +141,7 @@ func (m *Manager) History() []StateID {
 // ValidTransitions defines allowed transitions from each state
 var ValidTransitions = map[StateID][]StateID{
 	Dashboard: {
-		Menu, Input, Running, WizardType, Stack, Help, Update, Confirm, QuickCommit,
+		Menu, Input, Running, WizardType, Stack, Help, Update, Confirm, QuickCommit, CommitChoice,
 	},
 	Menu: {
 		Dashboard, Input, Running, WizardType, Stack,
@@ -186,6 +187,9 @@ var ValidTransitions = map[StateID][]StateID{
 	},
 	QuickCommit: {
 		Dashboard, Running,
+	},
+	CommitChoice: {
+		Dashboard, QuickCommit,
 	},
 }
 

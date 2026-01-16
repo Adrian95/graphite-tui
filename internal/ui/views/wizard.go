@@ -14,6 +14,7 @@ type WizardViewData struct {
 	CommitTypes   []git.CommitType
 	TypeIdx       int
 	Scope         string
+	RecentScopes  []string
 	Summary       string
 	ErrorMsg      string
 	CommitMessage string
@@ -47,7 +48,7 @@ func RenderWizardType(data WizardViewData) string {
 
 // RenderWizardScope renders the scope input (Step 2)
 func RenderWizardScope(data WizardViewData, inputView string) string {
-	return renderWizardInput(
+	view := renderWizardInput(
 		"Step 2 of 4",
 		"What part of the codebase? (Optional)",
 		"Component name: auth, navbar, api, etc.",
@@ -55,6 +56,16 @@ func RenderWizardScope(data WizardViewData, inputView string) string {
 		"",
 		"[Enter] Next  [Backspace] Back  [Esc] Cancel",
 	)
+
+	if len(data.RecentScopes) > 0 {
+		suggestions := ui.SubtitleStyle.Render("\nRecent scopes:")
+		for _, s := range data.RecentScopes {
+			suggestions += "\n" + ui.SubtitleStyle.Render("• "+s)
+		}
+		view = lipgloss.JoinVertical(lipgloss.Left, view, suggestions)
+	}
+
+	return view
 }
 
 // RenderWizardSummary renders the summary input (Step 3)

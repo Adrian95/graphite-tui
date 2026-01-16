@@ -21,7 +21,8 @@ func TickEvery(d time.Duration) tea.Cmd {
 
 // RefreshNow triggers an immediate git status refresh
 func RefreshNow() tea.Cmd {
-	return func() tea.Msg {
-		return git.CheckGitStatus()
-	}
+	return tea.Batch(
+		func() tea.Msg { return git.CheckLocalStatus() },
+		func() tea.Msg { return git.CheckStackStatus() },
+	)
 }

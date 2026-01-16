@@ -6,6 +6,7 @@ import (
 
 	"github.com/Adrian95/graphite-tui/internal/git"
 	"github.com/Adrian95/graphite-tui/internal/ui"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -19,6 +20,7 @@ type DashboardViewData struct {
 	// Files
 	ChangedFiles  []git.ChangedFile
 	FilesExpanded bool
+	FileList      list.Model
 
 	// State
 	GtInitialized bool
@@ -58,7 +60,7 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	branchBox := renderBranchBox(width, data.Branch, data.Ahead, data.Behind)
 
 	// Files box
-	filesBox := renderFilesBox(width, data.ChangedFiles, data.FilesExpanded)
+	filesBox := renderFilesBox(width, data.ChangedFiles, data.FilesExpanded, data.FileList)
 
 	// Tip box
 	tip := getContextualTip(data)
@@ -100,59 +102,25 @@ func renderBranchBox(width int, branch string, ahead, behind int) string {
 	return ui.BoxStyle.Width(width - 2).Render(branchLine)
 }
 
-func renderFilesBox(width int, files []git.ChangedFile, expanded bool) string {
-	filesTitle := ui.BoxTitleStyle.Render("CHANGES")
+func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList list.Model) string {
 	var filesContent string
 
 	if len(files) > 0 {
-		expandHint := ui.SubtitleStyle.Render(fmt.Sprintf(" (%d) [Tab]", len(files)))
-		filesTitle = ui.BoxTitleStyle.Render("CHANGES") + expandHint
+		fileList.SetWidth(width - 4)
+		// We can set height dynamically or keep it fixed.
+		// The original view allowed expansion.
+		// With list, we have scrolling, so a fixed reasonable height is good.
+		fileList.SetHeight(12)
 
-		var fileLines []string
-		maxFiles := 6
-		if expanded {
-			maxFiles = 30
-		}
-
-		for i, f := range files {
-			if i >= maxFiles {
-				remaining := len(files) - maxFiles
-				fileLines = append(fileLines, ui.SubtitleStyle.Render(fmt.Sprintf("...%d more", remaining)))
-				break
-			}
-
-			path := f.Path
-			maxLen := width - 10
-			if maxLen < 20 {
-				maxLen = 20
-			}
-			if len(path) > maxLen {
-				path = "..." + path[len(path)-maxLen+3:]
-			}
-
-			var styledLine string
-			switch f.Status {
-			case "M", "MM":
-				styledLine = ui.FileModifiedStyle.Render("M " + path)
-			case "A", "AM":
-				styledLine = ui.FileAddedStyle.Render("+ " + path)
-			case "D":
-				styledLine = ui.FileDeletedStyle.Render("- " + path)
-			case "R":
-				styledLine = ui.FileModifiedStyle.Render("R " + path)
-			case "??":
-				styledLine = ui.FileUntrackedStyle.Render("? " + path)
-			default:
-				styledLine = ui.FileUntrackedStyle.Render("• " + path)
-			}
-			fileLines = append(fileLines, styledLine)
-		}
-		filesContent = lipgloss.JoinVertical(lipgloss.Left, fileLines...)
+		filesContent = fileList.View()
 	} else {
-		filesContent = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓ Clean")
+		// Use manual title for empty state to match look
+		title := ui.BoxTitleStyle.Render("Changes")
+		content := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓ Clean")
+		filesContent = title + "\n" + content
 	}
 
-	return ui.BoxStyle.Width(width - 2).Render(filesTitle + "\n" + filesContent)
+	return ui.BoxStyle.Width(width - 2).Render(filesContent)
 }
 
 func getContextualTip(data DashboardViewData) string {

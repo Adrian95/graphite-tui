@@ -164,6 +164,7 @@ type WizardData struct {
 	CommitTypes   []git.CommitType
 	TypeIdx       int
 	Scope         string
+	RecentScopes  []string
 	Summary       string
 	ErrorMsg      string
 	CommitMessage string
@@ -382,3 +383,30 @@ func (s *PostCommitState) CanTransitionTo(target StateID) bool {
 
 func (s *PostCommitState) OnEnter() tea.Cmd { return nil }
 func (s *PostCommitState) OnExit()          {}
+
+// --- Reflog State ---
+
+type ReflogData struct {
+	Items  []git.ReflogItem
+	Cursor int
+}
+
+type ReflogState struct {
+	Data ReflogData
+}
+
+func NewReflogState() *ReflogState {
+	return &ReflogState{}
+}
+
+func (s *ReflogState) ID() StateID { return Reflog }
+
+func (s *ReflogState) CanTransitionTo(target StateID) bool {
+	return IsValidTransition(Reflog, target)
+}
+
+func (s *ReflogState) OnEnter() tea.Cmd {
+	return git.LoadReflog()
+}
+
+func (s *ReflogState) OnExit() {}

@@ -11,6 +11,7 @@ import (
 	"github.com/Adrian95/graphite-tui/internal/state"
 	"github.com/Adrian95/graphite-tui/internal/ui"
 	"github.com/Adrian95/graphite-tui/internal/ui/views"
+	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -29,6 +30,10 @@ type model struct {
 	textInput textinput.Model
 	viewport  viewport.Model
 	spinner   spinner.Model
+	fileList  list.Model
+
+	// Focus management
+	focusIndex int // 0: Speed Box, 1: File List
 
 	// Dimensions
 	width  int
@@ -46,6 +51,9 @@ type model struct {
 
 	// Stack state
 	stackData views.StackViewData
+
+	// Reflog state
+	reflogData views.ReflogViewData
 
 	// Output state
 	outputData views.OutputViewData
@@ -94,14 +102,17 @@ func initialModel() model {
 		BorderForeground(lipgloss.Color(ui.ColorBorder)).
 		Padding(0, 1)
 
+	fl := views.NewFileList()
+
 	return model{
-		stateID:     state.Dashboard,
-		items:       git.GetMenuItems(),
-		wizardData:  views.WizardViewData{CommitTypes: git.GetCommitTypes()},
-		textInput:   ti,
-		spinner:     s,
-		viewport:    vp,
-		skipHooks:   false,
+		stateID:    state.Dashboard,
+		items:      git.GetMenuItems(),
+		wizardData: views.WizardViewData{CommitTypes: git.GetCommitTypes()},
+		textInput:  ti,
+		spinner:    s,
+		viewport:   vp,
+		fileList:   fl,
+		skipHooks:  false,
 		dashboardData: views.DashboardViewData{
 			CurrentVersion: config.GetCurrentVersion(),
 		},
@@ -135,7 +146,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch m.stateID {
 		case state.Dashboard:
-			return m.handleDashboardKeys(key)
+			return m.handleDashboardKeys(msg)
 		case state.Menu:
 			return m.handleMenuKeys(key)
 		case state.Input:
@@ -156,6 +167,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleCommitChoiceKeys(key)
 		case state.Stack:
 			return m.handleStackKeys(key)
+		case state.Reflog:
+			return m.handleReflogKeys(key)
 		case state.Help:
 			if key == "esc" || key == "?" || key == "q" {
 				m.stateID = state.Dashboard
@@ -175,13 +188,48 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Wait for command
 		}
 
-	case git.StatusMsg:
+	case git.LocalStatusMsg:
 		m.dashboardData.Branch = msg.Branch
 		m.dashboardData.Ahead = msg.Ahead
 		m.dashboardData.Behind = msg.Behind
 		m.dashboardData.ChangedFiles = msg.ChangedFiles
 		m.dashboardData.GtInitialized = msg.GtInitialized
 		m.dashboardData.OnMain = msg.OnMain
+		// Update file list
+		items := views.FilesToItems(msg.ChangedFiles)
+		cmd = m.fileList.SetItems(items)
+		cmds = append(cmds, cmd)
+
+	case git.StackStatusMsg:
+		// We can add stack info to dashboardData if we want to display it in the future
+		// For now, it might be used to check if we have a stack
+		// The original code put stack into StatusMsg.Stack, but DashboardViewData didn't use it directly
+		// except maybe for some logic?
+		// Actually, StatusMsg had .Stack, but DashboardViewData did NOT have .Stack field.
+		// It seems Stack was only used for `StackLoadedMsg` which is separate.
+		// Wait, `StatusMsg` was calculating the stack but `DashboardViewData` ignores it?
+		// Let's check `views/dashboard.go` again.
+
+		// `DashboardViewData` has `Branch`, `Ahead`, `Behind`.
+		// It doesn't seem to visualize the stack in the dashboard main view, only `StackView` does.
+		// However, `git.CheckGitStatus` was fetching it.
+		// `views/dashboard.go` uses `Ahead`/`Behind`.
+
+		// So `StackStatusMsg` is potentially unused in Dashboard?
+		// Ah, `HasStack` might be useful.
+		_ = msg
+
+	case git.StatusMsg:
+		// Fallback for legacy calls if any
+		m.dashboardData.Branch = msg.Branch
+		m.dashboardData.Ahead = msg.Ahead
+		m.dashboardData.Behind = msg.Behind
+		m.dashboardData.ChangedFiles = msg.ChangedFiles
+		m.dashboardData.GtInitialized = msg.GtInitialized
+		m.dashboardData.OnMain = msg.OnMain
+		items := views.FilesToItems(msg.ChangedFiles)
+		cmd = m.fileList.SetItems(items)
+		cmds = append(cmds, cmd)
 
 	case git.CmdFinishedMsg:
 		m.outputData.Error = msg.Err
@@ -218,6 +266,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+
+	case git.ReflogLoadedMsg:
+		m.reflogData.Items = msg
+		m.reflogData.Cursor = 0
 
 	case config.VersionCheckMsg:
 		m.checkingUpdate = false
@@ -277,10 +329,34 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // --- Key Handlers ---
 
-func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "q":
+func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	// Global Dashboard keys (Quit, Tab)
+	if key == "q" && m.focusIndex != 1 { // Only quit if not filtering/in list
 		return m, tea.Quit
+	}
+
+	if key == "tab" {
+		m.focusIndex = (m.focusIndex + 1) % 2
+		// Adjust list styling based on focus
+		if m.focusIndex == 1 {
+			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
+		} else {
+			m.fileList.Styles.Title = ui.BoxTitleStyle
+		}
+		return m, nil
+	}
+
+	// File List Focus
+	if m.focusIndex == 1 {
+		var cmd tea.Cmd
+		m.fileList, cmd = m.fileList.Update(msg)
+		return m, cmd
+	}
+
+	// Speed Box / Standard Dashboard Focus (Index 0)
+	switch key {
 
 	case "up", "k":
 		if m.dashboardData.SpeedCursor > 0 {
@@ -369,10 +445,6 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 	case "r":
 		return m, ui.RefreshNow()
 
-	case "tab":
-		m.dashboardData.FilesExpanded = !m.dashboardData.FilesExpanded
-		return m, nil
-
 	case "R":
 		if len(m.dashboardData.ChangedFiles) > 0 {
 			m.confirmData = views.ConfirmViewData{Action: "reset"}
@@ -383,9 +455,8 @@ func (m model) handleDashboardKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "z":
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt undo"}
-		return m, git.ExecuteUndo()
+		m.stateID = state.Reflog
+		return m, git.LoadReflog()
 	}
 
 	return m, nil
@@ -501,6 +572,7 @@ func (m model) handleWizardTypeKeys(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		m.stateID = state.WizardScope
 		m.wizardData.Stage = 2
+		m.wizardData.RecentScopes = git.GetRecentScopes()
 		m.textInput.Reset()
 		m.textInput.Placeholder = "auth, ui, api (optional)"
 		return m, textinput.Blink
@@ -718,6 +790,40 @@ func (m model) handleStackKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleReflogKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q":
+		m.stateID = state.Dashboard
+		return m, nil
+
+	case "up", "k":
+		if m.reflogData.Cursor > 0 {
+			m.reflogData.Cursor--
+		}
+
+	case "down", "j":
+		if m.reflogData.Cursor < len(m.reflogData.Items)-1 {
+			m.reflogData.Cursor++
+		}
+
+	case "enter":
+		if len(m.reflogData.Items) > 0 {
+			// We will hard reset to this hash
+			target := m.reflogData.Items[m.reflogData.Cursor]
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "Reset to " + target.Hash}
+
+			// Custom reset command
+			cmd := exec.Command("git", "reset", "--hard", target.Hash)
+			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
+				return git.CmdFinishedMsg{Err: err, Command: "Reset to " + target.Hash, Output: "Reset complete."}
+			})
+		}
+	}
+
+	return m, nil
+}
+
 func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -867,6 +973,9 @@ func (m model) View() string {
 
 	case state.Stack:
 		return views.RenderCentered(views.RenderStack(m.stackData))
+
+	case state.Reflog:
+		return views.RenderCentered(views.RenderReflog(m.reflogData))
 
 	case state.Running, state.Output, state.PostCommit:
 		m.outputData.SpinnerView = m.spinner.View()

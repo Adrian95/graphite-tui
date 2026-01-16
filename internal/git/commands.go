@@ -25,6 +25,14 @@ type StackItem struct {
 	Level   int
 }
 
+// ReflogItem represents a git reflog entry
+type ReflogItem struct {
+	Hash    string
+	Message string
+	Date    string
+	RefName string // HEAD@{n}
+}
+
 // MenuItem represents a menu option
 type MenuItem struct {
 	Title   string
@@ -51,7 +59,25 @@ type CmdFinishedMsg struct {
 	Command string
 }
 
+// LocalStatusMsg contains local git status (fast)
+type LocalStatusMsg struct {
+	Branch        string
+	Ahead         int
+	Behind        int
+	ChangedFiles  []ChangedFile
+	OnMain        bool
+	GtInitialized bool
+	Suggestion    string
+}
+
+// StackStatusMsg contains graphite stack status (slow)
+type StackStatusMsg struct {
+	Stack    []string
+	HasStack bool
+}
+
 // StatusMsg contains the current git/graphite status
+// Deprecated: Use LocalStatusMsg and StackStatusMsg
 type StatusMsg struct {
 	Branch        string
 	Stack         []string
@@ -66,6 +92,9 @@ type StatusMsg struct {
 
 // StackLoadedMsg is sent when the stack is loaded
 type StackLoadedMsg []StackItem
+
+// ReflogLoadedMsg is sent when the reflog is loaded
+type ReflogLoadedMsg []ReflogItem
 
 // --- Singleton Executor ---
 
@@ -136,11 +165,44 @@ func getDefaultCommitMessage() string {
 	return "wip: " + time.Now().Format("Jan 2 15:04")
 }
 
+// GetRecentScopes scans git log for used scopes
+func GetRecentScopes() []string {
+	// grep for patterns like "feat(scope):" or "fix(scope):"
+	cmd := exec.Command("git", "log", "-n", "100", "--format=%s")
+	out, err := cmd.Output()
+	if err != nil {
+		return []string{}
+	}
+
+	scopesMap := make(map[string]bool)
+	var scopes []string
+
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		// regex-like parsing: look for '(' and '):'
+		start := strings.Index(line, "(")
+		end := strings.Index(line, "):")
+		if start != -1 && end != -1 && end > start {
+			scope := line[start+1 : end]
+			if !scopesMap[scope] && scope != "" {
+				scopesMap[scope] = true
+				scopes = append(scopes, scope)
+			}
+		}
+	}
+
+	// Limit to top 5
+	if len(scopes) > 5 {
+		return scopes[:5]
+	}
+	return scopes
+}
+
 // --- Git Status Commands ---
 
-// CheckGitStatus gets comprehensive git/graphite status
-func CheckGitStatus() tea.Msg {
-	status := StatusMsg{}
+// CheckLocalStatus gets fast local git status
+func CheckLocalStatus() tea.Msg {
+	status := LocalStatusMsg{}
 
 	// Check if Graphite is initialized
 	if _, err := os.Stat(".git/.graphite_repo_config"); err == nil {
@@ -174,7 +236,15 @@ func CheckGitStatus() tea.Msg {
 		}
 	}
 
-	// Check graphite stack
+	status.Suggestion = generateSuggestion(status)
+
+	return status
+}
+
+// CheckStackStatus gets slow graphite stack status
+func CheckStackStatus() tea.Msg {
+	status := StackStatusMsg{}
+
 	if out, err := exec.Command("gt", "log", "short").Output(); err == nil {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		if len(lines) > 1 {
@@ -188,14 +258,32 @@ func CheckGitStatus() tea.Msg {
 			}
 		}
 	}
-
-	// Generate suggestion
-	status.Suggestion = generateSuggestion(status)
-
 	return status
 }
 
-func generateSuggestion(s StatusMsg) string {
+// CheckGitStatus gets comprehensive git/graphite status
+// Deprecated: Use CheckLocalStatus and CheckStackStatus
+func CheckGitStatus() tea.Msg {
+	// For legacy compatibility, return a combined StatusMsg
+	// But in new parallel model, this shouldn't be used directly by the loop ideally.
+	// We'll construct it synchronously here for now.
+	local := CheckLocalStatus().(LocalStatusMsg)
+	stack := CheckStackStatus().(StackStatusMsg)
+
+	return StatusMsg{
+		Branch:        local.Branch,
+		Stack:         stack.Stack,
+		Ahead:         local.Ahead,
+		Behind:        local.Behind,
+		ChangedFiles:  local.ChangedFiles,
+		HasStack:      stack.HasStack,
+		OnMain:        local.OnMain,
+		GtInitialized: local.GtInitialized,
+		Suggestion:    local.Suggestion,
+	}
+}
+
+func generateSuggestion(s LocalStatusMsg) string {
 	switch {
 	case !s.GtInitialized:
 		return "suggestion: Graphite not initialized. Press [i] to set up Graphite in this repo."
@@ -232,6 +320,34 @@ func LoadStack() tea.Cmd {
 			})
 		}
 		return StackLoadedMsg(items)
+	}
+}
+
+// LoadReflog loads the git reflog
+func LoadReflog() tea.Cmd {
+	return func() tea.Msg {
+		// format: abbreviated_commit|relative_date|subject|refname
+		out, err := exec.Command("git", "reflog", "--date=relative", "--format=%h|%cr|%gs|%gd", "-n", "50").Output()
+		if err != nil {
+			return ReflogLoadedMsg{}
+		}
+
+		var items []ReflogItem
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			parts := strings.Split(line, "|")
+			if len(parts) >= 4 {
+				items = append(items, ReflogItem{
+					Hash:    parts[0],
+					Date:    parts[1],
+					Message: parts[2],
+					RefName: parts[3],
+				})
+			}
+		}
+		return ReflogLoadedMsg(items)
 	}
 }
 

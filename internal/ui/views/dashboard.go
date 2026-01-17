@@ -106,14 +106,18 @@ func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList 
 	var filesContent string
 
 	if len(files) > 0 {
-		fileList.SetWidth(width - 4)
-		// We can set height dynamically or keep it fixed.
-		// The original view allowed expansion.
-		// With list, we have scrolling, so a fixed reasonable height is good.
+		// Safety check for width
+		safeWidth := width - 4
+		if safeWidth < 1 {
+			safeWidth = 20 // Fallback minimum
+		}
+
+		fileList.SetWidth(safeWidth)
 		fileList.SetHeight(12)
 
 		filesContent = fileList.View()
 	} else {
+
 		// Use manual title for empty state to match look
 		title := ui.BoxTitleStyle.Render("Changes")
 		content := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓ Clean")

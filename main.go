@@ -938,6 +938,9 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 func (m model) View() string {
 	ctx := views.NewRenderContext(m.width, m.height)
 
+	// Sync file list to dashboard data
+	m.dashboardData.FileList = m.fileList
+
 	switch m.stateID {
 	case state.Dashboard, state.Menu:
 		return views.RenderDashboard(ctx, m.dashboardData)

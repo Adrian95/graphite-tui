@@ -8,11 +8,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime/debug"
-	"strconv"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"golang.org/x/mod/semver"
 )
 
 // --- Constants ---
@@ -121,13 +121,13 @@ type VersionCheckMsg struct {
 }
 
 type UpdateCompleteMsg struct {
-	Success        bool
-	Err            error
-	Message        string
-	PreviousVer    string
-	InstalledVer   string
-	VerifyFailed   bool   // True if version verification failed
-	RollbackPath   string // Path to backup if rollback is possible
+	Success      bool
+	Err          error
+	Message      string
+	PreviousVer  string
+	InstalledVer string
+	VerifyFailed bool   // True if version verification failed
+	RollbackPath string // Path to backup if rollback is possible
 }
 
 type UninstallCompleteMsg struct {
@@ -428,73 +428,16 @@ func PerformUninstall() tea.Cmd {
 
 // --- Version Comparison ---
 
-// parseVersion extracts major, minor, patch from a version string like "v1.2.3" or "1.2.3"
-func parseVersion(v string) (major, minor, patch int, ok bool) {
-	v = strings.TrimPrefix(v, "v")
-	// Remove any suffix like "(dev)" or build metadata
-	if idx := strings.Index(v, " "); idx != -1 {
-		v = v[:idx]
-	}
-	parts := strings.Split(v, ".")
-
-	if len(parts) < 1 {
-		return 0, 0, 0, false
-	}
-
-	var err error
-	major, err = strconv.Atoi(parts[0])
-	if err != nil {
-		return 0, 0, 0, false
-	}
-
-	if len(parts) >= 2 {
-		minor, err = strconv.Atoi(parts[1])
-		if err != nil {
-			minor = 0
-		}
-	}
-
-	if len(parts) >= 3 {
-		// Handle versions like "1.2.3-beta" by taking only the numeric part
-		patchStr := parts[2]
-		if idx := strings.IndexAny(patchStr, "-+"); idx != -1 {
-			patchStr = patchStr[:idx]
-		}
-		patch, err = strconv.Atoi(patchStr)
-		if err != nil {
-			patch = 0
-		}
-	}
-
-	return major, minor, patch, true
-}
-
 // IsNewerVersion checks if latest is newer than current using proper semver comparison
 func IsNewerVersion(current, latest string) bool {
-	curMajor, curMinor, curPatch, ok1 := parseVersion(current)
-	latMajor, latMinor, latPatch, ok2 := parseVersion(latest)
+	c := normalizeVersion(current)
+	l := normalizeVersion(latest)
 
-	if !ok1 || !ok2 {
+	if !semver.IsValid(c) || !semver.IsValid(l) {
 		return false
 	}
 
-	if latMajor > curMajor {
-		return true
-	}
-	if latMajor < curMajor {
-		return false
-	}
-
-	// Major versions equal, check minor
-	if latMinor > curMinor {
-		return true
-	}
-	if latMinor < curMinor {
-		return false
-	}
-
-	// Minor versions equal, check patch
-	return latPatch > curPatch
+	return semver.Compare(l, c) > 0
 }
 
 // --- Diagnostics ---

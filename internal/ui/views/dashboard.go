@@ -22,6 +22,14 @@ type DashboardViewData struct {
 	FilesExpanded bool
 	FileList      list.Model
 
+	// Metrics
+	LinesAdded   int
+	LinesRemoved int
+	NewFiles     int
+	ModFiles     int
+	DelFiles     int
+	StagedCount  int
+
 	// State
 	GtInitialized bool
 	OnMain        bool
@@ -62,6 +70,9 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	// Files box
 	filesBox := renderFilesBox(width, data.ChangedFiles, data.FilesExpanded, data.FileList)
 
+	// Metrics
+	metrics := renderMetrics(data)
+
 	// Tip box
 	tip := getContextualTip(data)
 	tipBox := ui.CardStyle.Width(width - 2).Render(
@@ -72,10 +83,35 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	return lipgloss.JoinVertical(lipgloss.Left,
 		branchBox,
 		"",
+		metrics,
+		"",
 		filesBox,
 		"",
 		tipBox,
 	)
+}
+
+func renderMetrics(data DashboardViewData) string {
+	if len(data.ChangedFiles) == 0 {
+		return ""
+	}
+
+	added := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("+%d", data.LinesAdded))
+	removed := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("-%d", data.LinesRemoved))
+
+	loc := fmt.Sprintf("%s / %s lines", added, removed)
+
+	files := fmt.Sprintf("%d New • %d Mod • %d Del", data.NewFiles, data.ModFiles, data.DelFiles)
+	filesStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSub)).Render(files)
+
+	staged := ""
+	if data.StagedCount > 0 {
+		staged = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Bold(true).Render(fmt.Sprintf(" • %d Staged", data.StagedCount))
+	} else {
+		staged = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Render(" • All Unstaged")
+	}
+
+	return ui.BoxStyle.Render(loc + "  " + filesStyle + staged)
 }
 
 func renderBranchBox(width int, branch string, ahead, behind int) string {

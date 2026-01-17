@@ -410,3 +410,30 @@ func (s *ReflogState) OnEnter() tea.Cmd {
 }
 
 func (s *ReflogState) OnExit() {}
+
+// --- Stash State ---
+
+type StashData struct {
+	Items  []git.StashItem
+	Cursor int
+}
+
+type StashState struct {
+	Data StashData
+}
+
+func NewStashState() *StashState {
+	return &StashState{}
+}
+
+func (s *StashState) ID() StateID { return Stash }
+
+func (s *StashState) CanTransitionTo(target StateID) bool {
+	return IsValidTransition(Stash, target)
+}
+
+func (s *StashState) OnEnter() tea.Cmd {
+	return git.LoadStash()
+}
+
+func (s *StashState) OnExit() {}

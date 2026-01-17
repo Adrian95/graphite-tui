@@ -55,6 +55,9 @@ type model struct {
 	// Reflog state
 	reflogData views.ReflogViewData
 
+	// Stash state
+	stashData views.StashViewData
+
 	// Output state
 	outputData views.OutputViewData
 
@@ -169,6 +172,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleStackKeys(key)
 		case state.Reflog:
 			return m.handleReflogKeys(key)
+		case state.Stash:
+			return m.handleStashKeys(key)
 		case state.Help:
 			if key == "esc" || key == "?" || key == "q" {
 				m.stateID = state.Dashboard
@@ -195,6 +200,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboardData.ChangedFiles = msg.ChangedFiles
 		m.dashboardData.GtInitialized = msg.GtInitialized
 		m.dashboardData.OnMain = msg.OnMain
+
+		// Metrics
+		m.dashboardData.LinesAdded = msg.LinesAdded
+		m.dashboardData.LinesRemoved = msg.LinesRemoved
+		m.dashboardData.NewFiles = msg.NewFiles
+		m.dashboardData.ModFiles = msg.ModFiles
+		m.dashboardData.DelFiles = msg.DelFiles
+		m.dashboardData.StagedCount = msg.StagedCount
+
 		// Update file list
 		items := views.FilesToItems(msg.ChangedFiles)
 		cmd = m.fileList.SetItems(items)
@@ -270,6 +284,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case git.ReflogLoadedMsg:
 		m.reflogData.Items = msg
 		m.reflogData.Cursor = 0
+
+	case git.StashLoadedMsg:
+		m.stashData.Items = msg
+		m.stashData.Cursor = 0
 
 	case config.VersionCheckMsg:
 		m.checkingUpdate = false
@@ -351,6 +369,19 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// File List Focus
 	if m.focusIndex == 1 {
 		var cmd tea.Cmd
+
+		// Custom File List Actions
+		switch key {
+		case "space":
+			if item, ok := m.fileList.SelectedItem().(views.FileItem); ok {
+				return m, git.ExecuteStage(item.File.Path, !item.File.Staged)
+			}
+		case "a":
+			return m, git.ExecuteStageAll(true)
+		case "u":
+			return m, git.ExecuteStageAll(false)
+		}
+
 		m.fileList, cmd = m.fileList.Update(msg)
 		return m, cmd
 	}
@@ -457,6 +488,10 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "z":
 		m.stateID = state.Reflog
 		return m, git.LoadReflog()
+
+	case "t":
+		m.stateID = state.Stash
+		return m, git.LoadStash()
 	}
 
 	return m, nil
@@ -542,6 +577,12 @@ func (m model) handleInputKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.confirmData.BranchName = inputVal
 			m.stateID = state.Confirm
 			return m, nil
+		}
+
+		if m.confirmData.Action == "stash-create" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Create"}
+			return m, git.ExecuteStashCommand("create", inputVal)
 		}
 
 		m.stateID = state.Running
@@ -824,6 +865,57 @@ func (m model) handleReflogKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleStashKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q":
+		m.stateID = state.Dashboard
+		return m, nil
+
+	case "up", "k":
+		if m.stashData.Cursor > 0 {
+			m.stashData.Cursor--
+		}
+
+	case "down", "j":
+		if m.stashData.Cursor < len(m.stashData.Items)-1 {
+			m.stashData.Cursor++
+		}
+
+	case "enter":
+		if len(m.stashData.Items) > 0 {
+			target := m.stashData.Items[m.stashData.Cursor]
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Pop"}
+			return m, git.ExecuteStashCommand("pop", target.ID)
+		}
+
+	case "a":
+		if len(m.stashData.Items) > 0 {
+			target := m.stashData.Items[m.stashData.Cursor]
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Apply"}
+			return m, git.ExecuteStashCommand("apply", target.ID)
+		}
+
+	case "d":
+		if len(m.stashData.Items) > 0 {
+			target := m.stashData.Items[m.stashData.Cursor]
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Drop"}
+			return m, git.ExecuteStashCommand("drop", target.ID)
+		}
+
+	case "c":
+		m.stateID = state.Input
+		m.textInput.Reset()
+		m.textInput.Placeholder = "Stash message (optional)..."
+		m.confirmData = views.ConfirmViewData{Action: "stash-create"} // Hijacking existing struct field for type
+		return m, textinput.Blink
+	}
+
+	return m, nil
+}
+
 func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -979,6 +1071,9 @@ func (m model) View() string {
 
 	case state.Reflog:
 		return views.RenderCentered(views.RenderReflog(m.reflogData))
+
+	case state.Stash:
+		return views.RenderCentered(views.RenderStash(m.stashData))
 
 	case state.Running, state.Output, state.PostCommit:
 		m.outputData.SpinnerView = m.spinner.View()

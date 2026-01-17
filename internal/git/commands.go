@@ -2,7 +2,9 @@ package git
 
 import (
 	"context"
+	"fmt"
 	"os"
+
 	"os/exec"
 	"strings"
 	"time"
@@ -16,6 +18,7 @@ import (
 type ChangedFile struct {
 	Status string // M, A, D, ??, etc.
 	Path   string
+	Staged bool
 }
 
 // StackItem represents a single item in the git stack
@@ -31,6 +34,14 @@ type ReflogItem struct {
 	Message string
 	Date    string
 	RefName string // HEAD@{n}
+}
+
+// StashItem represents a git stash entry
+type StashItem struct {
+	ID      string // stash@{n}
+	Branch  string
+	Message string
+	Date    string
 }
 
 // MenuItem represents a menu option
@@ -68,6 +79,12 @@ type LocalStatusMsg struct {
 	OnMain        bool
 	GtInitialized bool
 	Suggestion    string
+	StagedCount   int
+	LinesAdded    int
+	LinesRemoved  int
+	NewFiles      int
+	ModFiles      int
+	DelFiles      int
 }
 
 // StackStatusMsg contains graphite stack status (slow)
@@ -95,6 +112,9 @@ type StackLoadedMsg []StackItem
 
 // ReflogLoadedMsg is sent when the reflog is loaded
 type ReflogLoadedMsg []ReflogItem
+
+// StashLoadedMsg is sent when the stash is loaded
+type StashLoadedMsg []StashItem
 
 // --- Singleton Executor ---
 
@@ -228,10 +248,51 @@ func CheckLocalStatus() tea.Msg {
 	if out, err := exec.Command("git", "status", "--porcelain").Output(); err == nil {
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 			if len(line) >= 4 {
+				code := line[0:2]
+				path := strings.TrimSpace(line[3:])
+
+				// Determine staged status
+				// Index 0 is index status, Index 1 is worktree status
+				// M_ = Staged Modified
+				// A_ = Staged Added
+				// D_ = Staged Deleted
+				// R_ = Staged Renamed
+				// ?? = Untracked (Unstaged)
+				// _M = Unstaged Modified
+				staged := code[0] != ' ' && code[0] != '?'
+
 				status.ChangedFiles = append(status.ChangedFiles, ChangedFile{
-					Status: strings.TrimSpace(line[0:2]),
-					Path:   strings.TrimSpace(line[3:]),
+					Status: strings.TrimSpace(code),
+					Path:   path,
+					Staged: staged,
 				})
+
+				if staged {
+					status.StagedCount++
+				}
+
+				// Categorize for metrics
+				if strings.Contains(code, "A") || strings.Contains(code, "?") {
+					status.NewFiles++
+				} else if strings.Contains(code, "D") {
+					status.DelFiles++
+				} else {
+					status.ModFiles++
+				}
+			}
+		}
+	}
+
+	// Get Diff Stats (LOC)
+	// git diff --shortstat HEAD
+	// Output: " 2 files changed, 15 insertions(+), 3 deletions(-)"
+	if out, err := exec.Command("git", "diff", "--shortstat", "HEAD").Output(); err == nil {
+		parts := strings.Fields(string(out))
+		for i, p := range parts {
+			if strings.Contains(p, "insertion") && i > 0 {
+				fmt.Sscanf(parts[i-1], "%d", &status.LinesAdded)
+			} else if strings.Contains(p, "deletion") && i > 0 {
+				fmt.Sscanf(parts[i-1], "%d", &status.LinesRemoved)
 			}
 		}
 	}
@@ -351,6 +412,65 @@ func LoadReflog() tea.Cmd {
 	}
 }
 
+// LoadStash loads the git stash
+func LoadStash() tea.Cmd {
+	return func() tea.Msg {
+		// format: stash@{n}|branch|relative_date|message
+		// git stash list --format="%gd|%b|%cr|%s"
+		out, err := exec.Command("git", "stash", "list", "--format=%gd|%b|%cr|%s").Output()
+		if err != nil {
+			return StashLoadedMsg{}
+		}
+
+		var items []StashItem
+		for _, line := range strings.Split(string(out), "\n") {
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			parts := strings.Split(line, "|")
+			if len(parts) >= 4 {
+				items = append(items, StashItem{
+					ID:      parts[0],
+					Branch:  parts[1],
+					Date:    parts[2],
+					Message: parts[3],
+				})
+			}
+		}
+		return StashLoadedMsg(items)
+	}
+}
+
+// ExecuteStashCommand performs a stash action
+func ExecuteStashCommand(action string, id string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		msg := ""
+
+		switch action {
+		case "pop":
+			cmd = exec.Command("git", "stash", "pop", id)
+			msg = "Stash popped!"
+		case "apply":
+			cmd = exec.Command("git", "stash", "apply", id)
+			msg = "Stash applied!"
+		case "drop":
+			cmd = exec.Command("git", "stash", "drop", id)
+			msg = "Stash dropped!"
+		case "create":
+			// id is message here
+			cmd = exec.Command("git", "stash", "push", "-m", id)
+			msg = "Stashed changes!"
+		}
+
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			return CmdFinishedMsg{Err: err, Command: "Stash " + action, Output: string(output)}
+		}
+		return CmdFinishedMsg{Command: "Stash " + action, Output: msg + "\n" + string(output)}
+	}
+}
+
 // --- Command Execution Functions ---
 
 // ExecuteInteractive runs a command that needs terminal access
@@ -366,9 +486,64 @@ func ExecuteInteractive(commandStr string, inputArg string, skipHooks bool) tea.
 	return executor.ExecuteInteractive(cfg)
 }
 
+// ExecuteStage toggles staging for a file
+func ExecuteStage(path string, stage bool) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		if stage {
+			cmd = exec.Command("git", "add", path)
+		} else {
+			cmd = exec.Command("git", "reset", "HEAD", path)
+		}
+
+		err := cmd.Run()
+		if err != nil {
+			return CmdFinishedMsg{Err: err, Command: "Stage/Unstage"}
+		}
+		return CmdFinishedMsg{Command: "Stage/Unstage", Output: "Updated index"}
+	}
+}
+
+// ExecuteStageAll stages or unstages all files
+func ExecuteStageAll(stage bool) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		if stage {
+			cmd = exec.Command("git", "add", ".")
+		} else {
+			cmd = exec.Command("git", "reset", "HEAD")
+		}
+
+		err := cmd.Run()
+		if err != nil {
+			return CmdFinishedMsg{Err: err, Command: "Stage All"}
+		}
+		return CmdFinishedMsg{Command: "Stage All", Output: "Updated index"}
+	}
+}
+
 // ExecuteCommit creates a new branch and commit
 func ExecuteCommit(msg string, skipHooks bool) tea.Cmd {
-	args := []string{"create", "-a", "--no-interactive", "-m", msg}
+	// Check if we have staged files
+	// If yes, we commit only staged (no -a)
+	// If no, we commit all (-a) - Legacy behavior
+
+	// We can't easily check logic here without running a command,
+	// so we'll rely on the caller or check quickly.
+	// Actually, let's just check git diff --cached --quiet
+	// Exit code 1 means differences (staged changes exist)
+	// Exit code 0 means no differences (nothing staged)
+
+	hasStaged := false
+	if err := exec.Command("git", "diff", "--cached", "--quiet").Run(); err != nil {
+		hasStaged = true
+	}
+
+	args := []string{"create", "--no-interactive", "-m", msg}
+	if !hasStaged {
+		args = append(args, "-a")
+	}
+
 	if skipHooks {
 		args = append(args, "--no-verify")
 	}

@@ -1,6 +1,8 @@
 package views
 
 import (
+	"fmt"
+
 	"github.com/Adrian95/graphite-tui/internal/git"
 	"github.com/Adrian95/graphite-tui/internal/ui"
 	"github.com/charmbracelet/bubbles/list"
@@ -28,7 +30,18 @@ func (i FileItem) Title() string {
 	case "??":
 		icon = "?"
 	}
-	return icon + " " + i.File.Path
+
+	stagedMarker := "[ ]"
+	if i.File.Staged {
+		stagedMarker = "[x]"
+	}
+
+	// If untracked, it's effectively unstaged unless added
+	if i.File.Status == "??" {
+		stagedMarker = "[?]"
+	}
+
+	return fmt.Sprintf("%s %s %s", stagedMarker, icon, i.File.Path)
 }
 
 func (i FileItem) Description() string {

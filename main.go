@@ -11,6 +11,7 @@ import (
 	"github.com/Adrian95/graphite-tui/internal/state"
 	"github.com/Adrian95/graphite-tui/internal/ui"
 	"github.com/Adrian95/graphite-tui/internal/ui/views"
+	"github.com/Adrian95/graphite-tui/internal/vercel"
 	"github.com/charmbracelet/bubbles/list"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -33,7 +34,7 @@ type model struct {
 	fileList  list.Model
 
 	// Focus management
-	focusIndex int // 0: Speed Box, 1: File List
+	focusIndex int // 0: Speed Box, 1: File List, 2: Vercel Panel
 
 	// Dimensions
 	width  int
@@ -57,6 +58,10 @@ type model struct {
 
 	// Stash state
 	stashData views.StashViewData
+
+	// Vercel state
+	vercelData   views.VercelViewData
+	vercelClient *vercel.Client
 
 	// Output state
 	outputData views.OutputViewData
@@ -88,6 +93,8 @@ type model struct {
 }
 
 func initialModel() model {
+	vercel.LoadEnvFiles(".env.local", ".env")
+
 	ti := textinput.New()
 	ti.Placeholder = "Type your message..."
 	ti.Focus()
@@ -107,29 +114,46 @@ func initialModel() model {
 
 	fl := views.NewFileList()
 
+	vcfg := vercel.LoadConfig()
+	var vclient *vercel.Client
+	vercelData := views.VercelViewData{Enabled: vcfg.Enabled()}
+	if vcfg.Enabled() {
+		vclient = vercel.NewClient(vcfg)
+	}
+
 	return model{
-		stateID:    state.Dashboard,
-		items:      git.GetMenuItems(),
-		wizardData: views.WizardViewData{CommitTypes: git.GetCommitTypes()},
-		textInput:  ti,
-		spinner:    s,
-		viewport:   vp,
-		fileList:   fl,
-		skipHooks:  false,
+		stateID:      state.Dashboard,
+		items:        git.GetMenuItems(),
+		wizardData:   views.WizardViewData{CommitTypes: git.GetCommitTypes()},
+		textInput:    ti,
+		spinner:      s,
+		viewport:     vp,
+		fileList:     fl,
+		vercelData:   vercelData,
+		vercelClient: vclient,
+		skipHooks:    false,
 		dashboardData: views.DashboardViewData{
 			CurrentVersion: config.GetCurrentVersion(),
+			VercelSummary:  vercelData,
 		},
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(
+	cmds := []tea.Cmd{
 		textinput.Blink,
 		m.spinner.Tick,
 		ui.RefreshNow(),
 		config.CheckForUpdates(),
-		ui.TickEvery(3*time.Second),
-	)
+		ui.TickEvery(3 * time.Second),
+	}
+
+	if m.vercelClient != nil {
+		cmds = append(cmds, vercel.FetchStatus(m.vercelClient, nil))
+		cmds = append(cmds, ui.VercelTickEvery(15*time.Second))
+	}
+
+	return tea.Batch(cmds...)
 }
 
 // --- Update ---
@@ -289,6 +313,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.stashData.Items = msg
 		m.stashData.Cursor = 0
 
+	case vercel.StatusMsg:
+		m.vercelData.Enabled = msg.Enabled
+		m.vercelData.Statuses = msg.Statuses
+		m.vercelData.Summary = msg.Summary
+		m.vercelData.Cursor = 0
+		if msg.Err != nil {
+			m.vercelData.HasError = true
+			m.vercelData.ErrorString = msg.Err.Error()
+		} else {
+			m.vercelData.HasError = false
+			m.vercelData.ErrorString = ""
+		}
+
+	case vercel.ActionMsg:
+		if msg.Err != nil {
+			m.setFlash(msg.Err.Error())
+		} else if msg.Message != "" {
+			m.setFlash(msg.Message)
+		}
+
 	case config.VersionCheckMsg:
 		m.checkingUpdate = false
 		if msg.Err == nil && config.IsNewerVersion(config.GetCurrentVersion(), msg.LatestVersion) {
@@ -330,6 +374,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, ui.RefreshNow())
 		}
 		cmds = append(cmds, ui.TickEvery(3*time.Second))
+		return m, tea.Batch(cmds...)
+
+	case ui.VercelTickMsg:
+		if m.vercelClient != nil {
+			branches := m.collectVercelBranches()
+			cmds = append(cmds, vercel.FetchStatus(m.vercelClient, branches))
+			cmds = append(cmds, ui.VercelTickEvery(15*time.Second))
+			return m, tea.Batch(cmds...)
+		}
 
 	case spinner.TickMsg:
 		m.spinner, cmd = m.spinner.Update(msg)
@@ -356,7 +409,7 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key == "tab" {
-		m.focusIndex = (m.focusIndex + 1) % 2
+		m.focusIndex = (m.focusIndex + 1) % 3
 		// Adjust list styling based on focus
 		if m.focusIndex == 1 {
 			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
@@ -384,6 +437,11 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		m.fileList, cmd = m.fileList.Update(msg)
 		return m, cmd
+	}
+
+	// Vercel Focus
+	if m.focusIndex == 2 {
+		return m.handleVercelKeys(key)
 	}
 
 	// Speed Box / Standard Dashboard Focus (Index 0)
@@ -492,6 +550,10 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "t":
 		m.stateID = state.Stash
 		return m, git.LoadStash()
+
+	case "v":
+		m.stateID = state.Vercel
+		return m, vercel.FetchStatus(m.vercelClient, m.collectVercelBranches())
 	}
 
 	return m, nil
@@ -501,6 +563,19 @@ func (m *model) setFlash(msg string) {
 	m.flashMessage = msg
 	m.flashExpiry = time.Now().Add(3 * time.Second)
 	m.dashboardData.FlashMessage = msg
+}
+
+func (m model) collectVercelBranches() []string {
+	branches := []string{}
+	if m.dashboardData.Branch != "" {
+		branches = append(branches, m.dashboardData.Branch)
+	}
+	for _, item := range m.stackData.Items {
+		if item.Name != "" {
+			branches = append(branches, item.Name)
+		}
+	}
+	return branches
 }
 
 func (m model) handleMenuKeys(key string) (tea.Model, tea.Cmd) {
@@ -916,6 +991,52 @@ func (m model) handleStashKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleVercelKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q":
+		m.focusIndex = 0
+		return m, nil
+
+	case "up", "k":
+		if m.vercelData.Cursor > 0 {
+			m.vercelData.Cursor--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.vercelData.Cursor < len(m.vercelData.Statuses)-1 {
+			m.vercelData.Cursor++
+		}
+		return m, nil
+
+	case "enter":
+		if len(m.vercelData.Statuses) > 0 {
+			status := m.vercelData.Statuses[m.vercelData.Cursor]
+			if status.PreviewURL != "" {
+				return m, vercel.OpenURL(status.PreviewURL)
+			}
+		}
+
+	case "y":
+		if len(m.vercelData.Statuses) > 0 {
+			status := m.vercelData.Statuses[m.vercelData.Cursor]
+			if status.PreviewURL != "" {
+				return m, vercel.CopyToClipboard(status.PreviewURL)
+			}
+		}
+
+	case "p":
+		if len(m.vercelData.Statuses) > 0 {
+			status := m.vercelData.Statuses[m.vercelData.Cursor]
+			if status.ProductionURL != "" {
+				return m, vercel.OpenURL(status.ProductionURL)
+			}
+		}
+	}
+
+	return m, nil
+}
+
 func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -1033,6 +1154,8 @@ func (m model) View() string {
 	// Sync file list to dashboard data
 	m.dashboardData.FileList = m.fileList
 	m.dashboardData.FileBoxFocused = m.focusIndex == 1
+	m.dashboardData.VercelFocused = m.focusIndex == 2
+	m.dashboardData.VercelSummary = m.vercelData
 
 	switch m.stateID {
 	case state.Dashboard, state.Menu:
@@ -1075,6 +1198,9 @@ func (m model) View() string {
 
 	case state.Stash:
 		return views.RenderCentered(views.RenderStash(m.stashData))
+
+	case state.Vercel:
+		return views.RenderCentered(views.RenderVercel(m.vercelData, ctx.MainWidth()))
 
 	case state.Running, state.Output, state.PostCommit:
 		m.outputData.SpinnerView = m.spinner.View()

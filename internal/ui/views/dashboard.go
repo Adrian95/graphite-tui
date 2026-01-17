@@ -40,6 +40,10 @@ type DashboardViewData struct {
 	UpdateAvailable string
 	FlashMessage    string
 	FileBoxFocused  bool
+	VercelFocused   bool
+
+	// Vercel
+	VercelSummary VercelViewData
 
 	// Version
 	CurrentVersion string
@@ -74,6 +78,9 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	// Metrics
 	metrics := renderMetrics(data)
 
+	// Vercel summary
+	vercelBox := renderVercelSummaryBox(width, data.VercelSummary, data.VercelFocused)
+
 	// Tip box
 	tip := getContextualTip(data)
 	tipBox := ui.CardStyle.Width(width - 2).Render(
@@ -86,10 +93,31 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 		"",
 		metrics,
 		"",
+		vercelBox,
+		"",
 		filesBox,
 		"",
 		tipBox,
 	)
+}
+
+func renderVercelSummaryBox(width int, data VercelViewData, focused bool) string {
+	title := "Vercel"
+	if focused {
+		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Render(title)
+	} else {
+		title = ui.BoxTitleStyle.Render(title)
+	}
+
+	content := ui.SubtitleStyle.Render("Not configured")
+	if data.Enabled {
+		content = RenderVercelSummary(data.Summary)
+		if data.HasError {
+			content = ui.SubtitleStyle.Render("Error: " + data.ErrorString)
+		}
+	}
+
+	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
 }
 
 func renderMetrics(data DashboardViewData) string {
@@ -167,6 +195,9 @@ func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList 
 func getContextualTip(data DashboardViewData) string {
 	if data.FileBoxFocused {
 		return "[Space] Stage/Unstage  [a] Stage All  [u] Unstage All"
+	}
+	if data.VercelFocused {
+		return "[↑↓] Navigate  [⏎] Open Preview  [p] Open Prod  [y] Copy Preview"
 	}
 
 	if !data.GtInitialized {

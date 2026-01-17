@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/Adrian95/graphite-tui/internal/git"
+	"github.com/Adrian95/graphite-tui/internal/vercel"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -437,3 +438,28 @@ func (s *StashState) OnEnter() tea.Cmd {
 }
 
 func (s *StashState) OnExit() {}
+
+// --- Vercel State ---
+
+type VercelData struct {
+	Items  []vercel.DeploymentStatus
+	Cursor int
+}
+
+type VercelState struct {
+	Data VercelData
+}
+
+func NewVercelState() *VercelState {
+	return &VercelState{}
+}
+
+func (s *VercelState) ID() StateID { return Vercel }
+
+func (s *VercelState) CanTransitionTo(target StateID) bool {
+	return IsValidTransition(Vercel, target)
+}
+
+func (s *VercelState) OnEnter() tea.Cmd { return nil }
+
+func (s *VercelState) OnExit() {}

@@ -30,6 +30,7 @@ const (
 	CommitChoice
 	Reflog
 	Stash
+	Vercel
 )
 
 // String returns the state name for debugging
@@ -38,7 +39,7 @@ func (s StateID) String() string {
 		"Dashboard", "Menu", "Input", "Running", "Output",
 		"WizardType", "WizardScope", "WizardSummary", "WizardPreview",
 		"Stack", "Help", "Update", "Confirm", "Startup", "PostCommit",
-		"QuickCommit", "CommitChoice", "Reflog", "Stash",
+		"QuickCommit", "CommitChoice", "Reflog", "Stash", "Vercel",
 	}
 	if int(s) < len(names) {
 		return names[s]
@@ -143,7 +144,7 @@ func (m *Manager) History() []StateID {
 // ValidTransitions defines allowed transitions from each state
 var ValidTransitions = map[StateID][]StateID{
 	Dashboard: {
-		Menu, Input, Running, WizardType, Stack, Help, Update, Confirm, QuickCommit, CommitChoice, Reflog, Stash,
+		Menu, Input, Running, WizardType, Stack, Help, Update, Confirm, QuickCommit, CommitChoice, Reflog, Stash, Vercel,
 	},
 	Menu: {
 		Dashboard, Input, Running, WizardType, Stack,
@@ -197,6 +198,9 @@ var ValidTransitions = map[StateID][]StateID{
 		Dashboard, Running,
 	},
 	Stash: {
+		Dashboard, Running,
+	},
+	Vercel: {
 		Dashboard, Running,
 	},
 }

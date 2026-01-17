@@ -584,12 +584,26 @@ func ExecuteTurboShipWithMsg(commitMsg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
+		// Check for staged files
+		hasStaged := false
+		if err := exec.Command("git", "diff", "--cached", "--quiet").Run(); err != nil {
+			hasStaged = true
+		}
+
+		// Construct create command
+		// If staged changes exist, don't use -a. Otherwise use -a (commit all).
+		cmdStr := "gt create --no-interactive -m"
+		if !hasStaged {
+			cmdStr = "gt create -a --no-interactive -m"
+		}
+
 		// Step 1: Create commit
+		// Use UseShell: false to ensure arguments are passed correctly as exec args, avoiding shell quoting issues
 		result := executor.Execute(ctx, ExecutionConfig{
-			Command:   "gt create -a --no-interactive -m",
+			Command:   cmdStr,
 			Args:      []string{commitMsg},
 			SkipHooks: skipHooks,
-			UseShell:  true,
+			UseShell:  false,
 		})
 		if result.Err != nil {
 			result.Command = "turbo ship (commit)"
@@ -623,12 +637,24 @@ func ExecuteIterateWithMsg(commitMsg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
+		// Check for staged files
+		hasStaged := false
+		if err := exec.Command("git", "diff", "--cached", "--quiet").Run(); err != nil {
+			hasStaged = true
+		}
+
+		// Construct modify command
+		cmdStr := "gt modify --no-interactive -m"
+		if !hasStaged {
+			cmdStr = "gt modify -a --no-interactive -m"
+		}
+
 		// Step 1: Amend commit
 		result := executor.Execute(ctx, ExecutionConfig{
-			Command:   "gt modify -a --no-interactive -m",
+			Command:   cmdStr,
 			Args:      []string{commitMsg},
 			SkipHooks: skipHooks,
-			UseShell:  true,
+			UseShell:  false,
 		})
 		if result.Err != nil {
 			result.Command = "iterate (amend)"

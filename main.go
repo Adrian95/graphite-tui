@@ -1032,6 +1032,7 @@ func (m model) View() string {
 
 	// Sync file list to dashboard data
 	m.dashboardData.FileList = m.fileList
+	m.dashboardData.FileBoxFocused = m.focusIndex == 1
 
 	switch m.stateID {
 	case state.Dashboard, state.Menu:

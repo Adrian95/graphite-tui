@@ -39,6 +39,7 @@ type DashboardViewData struct {
 	SkipHooks       bool
 	UpdateAvailable string
 	FlashMessage    string
+	FileBoxFocused  bool
 
 	// Version
 	CurrentVersion string
@@ -164,6 +165,10 @@ func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList 
 }
 
 func getContextualTip(data DashboardViewData) string {
+	if data.FileBoxFocused {
+		return "[Space] Stage/Unstage  [a] Stage All  [u] Unstage All"
+	}
+
 	if !data.GtInitialized {
 		return "Press [i] to initialize Graphite"
 	}

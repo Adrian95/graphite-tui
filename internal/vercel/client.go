@@ -3,7 +3,11 @@ package vercel
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,15 +35,20 @@ func (c *Client) GetDeployments(limit int, target string) (*DeploymentsResponse,
 		return &DeploymentsResponse{}, nil
 	}
 
-	url := fmt.Sprintf("%s/v13/deployments?projectId=%s&limit=%d", apiBase, c.config.ProjectID, limit)
+	endpoint := fmt.Sprintf("%s/v13/deployments", apiBase)
+	params := url.Values{}
+	params.Set("projectId", c.config.ProjectID)
+	params.Set("limit", strconv.Itoa(limit))
 	if target != "" {
-		url += "&target=" + target
+		params.Set("target", target)
 	}
 	if c.config.TeamID != "" {
-		url += "&teamId=" + c.config.TeamID
+		params.Set("teamId", c.config.TeamID)
 	}
 
-	req, err := http.NewRequest("GET", url, nil)
+	endpoint = endpoint + "?" + params.Encode()
+
+	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +62,12 @@ func (c *Client) GetDeployments(limit int, target string) (*DeploymentsResponse,
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("vercel api returned %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		msg := strings.TrimSpace(string(body))
+		if msg == "" {
+			msg = "unknown error"
+		}
+		return nil, fmt.Errorf("vercel api returned %d: %s", resp.StatusCode, msg)
 	}
 
 	var data DeploymentsResponse

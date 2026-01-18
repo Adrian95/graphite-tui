@@ -38,6 +38,10 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 			return StatusMsg{Enabled: false}
 		}
 
+		if len(branches) == 0 {
+			branches = []string{"production"}
+		}
+
 		previewResp, err := client.GetDeployments(50, "")
 		if err != nil {
 			return StatusMsg{Enabled: true, Err: err}
@@ -59,14 +63,31 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 		updateLatest := func(target string, dep Deployment) {
 			branch := dep.GitSource.Ref
 			if branch == "" {
+				branch = dep.Meta["githubCommitRef"]
+			}
+			if branch == "" {
+				branch = dep.Meta["gitBranch"]
+			}
+			if branch == "" {
 				return
 			}
 			if _, ok := statusMap[branch]; !ok {
 				return
 			}
+			created := dep.CreatedAt
+			if created == 0 {
+				created = dep.Created
+			}
 			if target == "production" {
 				current := statusMap[branch].Production
-				if current == nil || dep.CreatedAt > current.CreatedAt {
+				currentCreated := int64(0)
+				if current != nil {
+					currentCreated = current.CreatedAt
+					if currentCreated == 0 {
+						currentCreated = current.Created
+					}
+				}
+				if current == nil || created > currentCreated {
 					copy := dep
 					statusMap[branch].Production = &copy
 					statusMap[branch].ProductionURL = "https://" + dep.URL
@@ -74,7 +95,14 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 				return
 			}
 			current := statusMap[branch].Preview
-			if current == nil || dep.CreatedAt > current.CreatedAt {
+			currentCreated := int64(0)
+			if current != nil {
+				currentCreated = current.CreatedAt
+				if currentCreated == 0 {
+					currentCreated = current.Created
+				}
+			}
+			if current == nil || created > currentCreated {
 				copy := dep
 				statusMap[branch].Preview = &copy
 				statusMap[branch].PreviewURL = "https://" + dep.URL
@@ -97,6 +125,26 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 			statuses = append(statuses, *status)
 		}
 
+		// If we didn't match any branches, fallback to latest production deployment
+		if len(statuses) == 0 {
+			status := DeploymentStatus{Branch: "production"}
+			var latestCreated int64
+			for _, dep := range prodResp.Deployments {
+				created := dep.CreatedAt
+				if created == 0 {
+					created = dep.Created
+				}
+				if status.Production == nil || created > latestCreated {
+					latestCreated = created
+					copy := dep
+					status.Production = &copy
+					status.ProductionURL = "https://" + dep.URL
+				}
+			}
+			if status.Production != nil {
+				statuses = append(statuses, status)
+			}
+		}
 		sort.Slice(statuses, func(i, j int) bool {
 			return statuses[i].Branch < statuses[j].Branch
 		})

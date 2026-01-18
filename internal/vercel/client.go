@@ -44,6 +44,8 @@ func (c *Client) GetDeployments(limit int, target string) (*DeploymentsResponse,
 	}
 	if c.config.TeamID != "" {
 		params.Set("teamId", c.config.TeamID)
+	} else if c.config.OrgID != "" {
+		params.Set("teamId", c.config.OrgID)
 	}
 
 	endpoint = endpoint + "?" + params.Encode()

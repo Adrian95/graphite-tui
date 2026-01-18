@@ -9,11 +9,20 @@ import (
 // One repo → one project
 // Token is loaded from .env.local or .env
 // Required: VERCEL_TOKEN, VERCEL_PROJECT_ID
-// Optional: VERCEL_TEAM_ID
+// Optional: VERCEL_TEAM_ID or VERCEL_ORG_ID
 type Config struct {
 	Token     string
 	ProjectID string
 	TeamID    string
+	OrgID     string
+}
+
+// TeamOrOrgID returns the identifier used for team-scoped API calls
+func (c Config) TeamOrOrgID() string {
+	if c.TeamID != "" {
+		return c.TeamID
+	}
+	return c.OrgID
 }
 
 // Enabled returns true if Vercel config is available
@@ -66,5 +75,6 @@ func LoadConfig() Config {
 		Token:     os.Getenv("VERCEL_TOKEN"),
 		ProjectID: os.Getenv("VERCEL_PROJECT_ID"),
 		TeamID:    os.Getenv("VERCEL_TEAM_ID"),
+		OrgID:     os.Getenv("VERCEL_ORG_ID"),
 	}
 }

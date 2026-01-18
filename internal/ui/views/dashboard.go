@@ -198,7 +198,7 @@ func getContextualTip(data DashboardViewData) string {
 	}
 	if data.VercelFocused {
 		if !data.VercelSummary.Enabled {
-			return "Set VERCEL_TOKEN + VERCEL_PROJECT_ID in .env.local/.env (token: vercel.com/account/tokens, project ID: Vercel → Project → Settings)"
+			return "Set VERCEL_TOKEN + VERCEL_PROJECT_ID (+ VERCEL_ORG_ID if org) in .env.local/.env (token: vercel.com/account/tokens, project: Vercel → Project → Settings)"
 		}
 		return "[↑↓] Navigate  [⏎] Open Preview  [p] Open Prod  [y] Copy Preview"
 	}

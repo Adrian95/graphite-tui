@@ -197,6 +197,9 @@ func getContextualTip(data DashboardViewData) string {
 		return "[Space] Stage/Unstage  [a] Stage All  [u] Unstage All"
 	}
 	if data.VercelFocused {
+		if !data.VercelSummary.Enabled {
+			return "Set VERCEL_TOKEN + VERCEL_PROJECT_ID in .env.local/.env (token: vercel.com/account/tokens, project ID: Vercel → Project → Settings)"
+		}
 		return "[↑↓] Navigate  [⏎] Open Preview  [p] Open Prod  [y] Copy Preview"
 	}
 

@@ -12,6 +12,7 @@ import (
 )
 
 const apiBase = "https://api.vercel.com"
+const deploymentsVersion = "v6"
 
 // Client handles Vercel API requests
 // Uses REST API (no CLI dependency)
@@ -35,7 +36,7 @@ func (c *Client) GetDeployments(limit int, target string) (*DeploymentsResponse,
 		return &DeploymentsResponse{}, nil
 	}
 
-	endpoint := fmt.Sprintf("%s/v13/deployments", apiBase)
+	endpoint := fmt.Sprintf("%s/%s/deployments", apiBase, deploymentsVersion)
 	params := url.Values{}
 	params.Set("projectId", c.config.ProjectID)
 	params.Set("limit", strconv.Itoa(limit))

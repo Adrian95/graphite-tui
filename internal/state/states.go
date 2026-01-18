@@ -3,8 +3,8 @@ package state
 import (
 	"time"
 
-	"github.com/Adrian95/graphite-tui/internal/git"
-	"github.com/Adrian95/graphite-tui/internal/vercel"
+	"github.com/Adrian95/graphite-tui/v2/internal/git"
+	"github.com/Adrian95/graphite-tui/v2/internal/vercel"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

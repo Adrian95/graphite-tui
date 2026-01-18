@@ -38,7 +38,7 @@ This is that.
 ## Install
 
 ```bash
-go install github.com/Adrian95/graphite-tui/cmd/graphite-tui@latest
+go install github.com/Adrian95/graphite-tui/v2@latest
 ```
 
 Then run it:

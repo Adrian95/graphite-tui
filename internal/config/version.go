@@ -137,40 +137,53 @@ type UninstallCompleteMsg struct {
 
 // --- Version Checking ---
 
+// fetchLatestReleaseTag queries GitHub API for the latest release tag
+func fetchLatestReleaseTag() (string, error) {
+	url := fmt.Sprintf(GithubAPI, RepoOwner, RepoName)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", "graphite-tui")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", err
+	}
+	if release.TagName == "" {
+		return "", fmt.Errorf("latest release tag not found")
+	}
+
+	return release.TagName, nil
+}
+
 // CheckForUpdates queries GitHub API for the latest release
 func CheckForUpdates() tea.Cmd {
 	return func() tea.Msg {
-		url := fmt.Sprintf(GithubAPI, RepoOwner, RepoName)
-
-		client := &http.Client{Timeout: 5 * time.Second}
-		req, err := http.NewRequest("GET", url, nil)
+		latest, err := fetchLatestReleaseTag()
 		if err != nil {
-			return VersionCheckMsg{Err: err}
-		}
-
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-		req.Header.Set("User-Agent", "graphite-tui")
-
-		resp, err := client.Do(req)
-		if err != nil {
-			return VersionCheckMsg{Err: err}
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			return VersionCheckMsg{Err: fmt.Errorf("GitHub API returned %d", resp.StatusCode)}
-		}
-
-		var release struct {
-			TagName string `json:"tag_name"`
-		}
-
-		if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
 			return VersionCheckMsg{Err: err}
 		}
 
 		return VersionCheckMsg{
-			LatestVersion: release.TagName,
+			LatestVersion: latest,
 			CurrentInfo:   GetBuildInfo(),
 		}
 	}
@@ -181,6 +194,26 @@ func CheckForUpdates() tea.Cmd {
 // PerformUpdate updates the tool to the latest version with verification
 func PerformUpdate() tea.Cmd {
 	return PerformUpdateToVersion("")
+}
+
+// modulePathForVersion returns the correct module path for a given version
+func modulePathForVersion(version string) string {
+	base := fmt.Sprintf("github.com/%s/%s", RepoOwner, RepoName)
+	if version == "" {
+		return base
+	}
+
+	norm := normalizeVersion(version)
+	if !semver.IsValid(norm) {
+		return base
+	}
+
+	major := semver.Major(norm)
+	if major == "v0" || major == "v1" {
+		return base
+	}
+
+	return base + "/" + major
 }
 
 // PerformUpdateToVersion updates to a specific version (empty string = latest)
@@ -201,7 +234,7 @@ To install graphite-tui, you need Go first:
 
   1. Install Go: https://go.dev/dl/
   2. Restart your terminal
-  3. Run: go install github.com/Adrian95/graphite-tui@latest
+  3. Run: go install github.com/Adrian95/graphite-tui/v2@latest
   4. Make sure ~/go/bin is in your PATH`,
 			}
 		}
@@ -221,7 +254,14 @@ To install graphite-tui, you need Go first:
 		}
 
 		// 4. Run go install with cache bypass
-		installPath := fmt.Sprintf("github.com/%s/%s%s", RepoOwner, RepoName, versionSpec)
+		modulePath := modulePathForVersion(targetVersion)
+		if targetVersion == "" {
+			latest, err := fetchLatestReleaseTag()
+			if err == nil {
+				modulePath = modulePathForVersion(latest)
+			}
+		}
+		installPath := fmt.Sprintf("%s%s", modulePath, versionSpec)
 		cmd := exec.Command(goPath, "install", installPath)
 		// GOPROXY=direct bypasses the module proxy cache
 		// GOFLAGS=-mod=mod ensures we get fresh dependencies
@@ -379,14 +419,17 @@ func getInstalledBinaryVersion(binaryPath string) (string, error) {
 		return "", err
 	}
 
-	// Parse output for mod line: "mod github.com/Adrian95/graphite-tui v1.9.3"
+	// Parse output for mod line: "mod github.com/Adrian95/graphite-tui/v2 v2.0.0"
 	lines := strings.Split(string(output), "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "mod") {
 			fields := strings.Fields(line)
 			if len(fields) >= 3 {
-				return fields[2], nil
+				// Support v2+ module paths
+				value := strings.TrimPrefix(fields[2], "github.com/Adrian95/graphite-tui/v2")
+				value = strings.TrimPrefix(value, "github.com/Adrian95/graphite-tui/")
+				return strings.TrimPrefix(value, "/"), nil
 			}
 		}
 	}

@@ -3,7 +3,7 @@ package ui
 import (
 	"time"
 
-	"github.com/Adrian95/graphite-tui/internal/git"
+	"github.com/Adrian95/graphite-tui/v2/internal/git"
 	tea "github.com/charmbracelet/bubbletea"
 )
 

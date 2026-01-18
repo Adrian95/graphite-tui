@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Adrian95/graphite-tui/internal/ui"
-	"github.com/Adrian95/graphite-tui/internal/vercel"
+	"github.com/Adrian95/graphite-tui/v2/internal/ui"
+	"github.com/Adrian95/graphite-tui/v2/internal/vercel"
 	"github.com/charmbracelet/lipgloss"
 )
 

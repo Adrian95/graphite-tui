@@ -1,7 +1,7 @@
 package views
 
 import (
-	"github.com/Adrian95/graphite-tui/internal/ui"
+	"github.com/Adrian95/graphite-tui/v2/internal/ui"
 	"github.com/charmbracelet/lipgloss"
 )
 

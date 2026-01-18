@@ -31,8 +31,6 @@ func RenderVercel(data VercelViewData, width int) string {
 		return ui.BoxStyle.Width(width - 2).Render(title + "\n" + ui.SubtitleStyle.Render("Error: "+data.ErrorString))
 	}
 
-	summaryLine := RenderVercelSummary(data.Summary)
-
 	var lines []string
 	if len(data.Statuses) == 0 {
 		lines = append(lines, ui.SubtitleStyle.Render("No deployments found"))
@@ -69,7 +67,6 @@ func RenderVercel(data VercelViewData, width int) string {
 
 	content := lipgloss.JoinVertical(lipgloss.Left,
 		title,
-		summaryLine,
 		"",
 		lipgloss.JoinVertical(lipgloss.Left, lines...),
 	)

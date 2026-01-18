@@ -82,8 +82,11 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	// Vercel summary
 	vercelBox := renderVercelSummaryBox(width, data.VercelSummary, data.VercelFocused)
 
-	// Context strip (always visible)
-	contextStrip := renderContextStrip(data)
+	// Context strip (focus only)
+	contextStrip := ""
+	if data.FileBoxFocused || data.VercelFocused {
+		contextStrip = renderContextStrip(data)
+	}
 
 	// Tip box
 	tip := getContextualTip(data)
@@ -92,19 +95,18 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorFg)).Render(tip),
 	)
 
-	return lipgloss.JoinVertical(lipgloss.Left,
-		branchBox,
-		"",
-		metrics,
-		"",
-		contextStrip,
-		"",
-		vercelBox,
-		"",
-		filesBox,
-		"",
-		tipBox,
-	)
+	parts := []string{branchBox, "", metrics}
+	if contextStrip != "" {
+		parts = append(parts, "", contextStrip)
+	}
+	if !data.VercelFocused {
+		parts = append(parts, "", vercelBox)
+	}
+	if !data.VercelFocused {
+		parts = append(parts, "", filesBox)
+	}
+	parts = append(parts, "", tipBox)
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func renderVercelSummaryBox(width int, data VercelViewData, focused bool) string {
@@ -227,7 +229,7 @@ func renderContextStrip(data DashboardViewData) string {
 		return ""
 	}
 
-	return ui.CardStyle.Render(strings.Join(parts, "  •  "))
+	return ui.CardStyle.Render(strings.Join(parts, " • "))
 }
 
 func getContextualTip(data DashboardViewData) string {

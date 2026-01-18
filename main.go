@@ -419,6 +419,11 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	if key == "esc" {
+		m.focusIndex = 0
+		return m, nil
+	}
+
 	// File List Focus
 	if m.focusIndex == 1 {
 		var cmd tea.Cmd

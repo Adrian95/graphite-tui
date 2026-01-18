@@ -14,6 +14,7 @@ type SidebarData struct {
 	SkipHooks       bool
 	UpdateAvailable string
 	FlashMessage    string
+	SpeedFocused    bool
 }
 
 // RenderSidebar renders the left sidebar
@@ -29,7 +30,7 @@ func RenderSidebar(ctx RenderContext, data SidebarData) string {
 	version := ui.SubtitleStyle.Render(data.CurrentVersion)
 
 	// Speed box
-	speedBox := renderSpeedBox(width, data.SpeedCursor)
+	speedBox := renderSpeedBox(width, data.SpeedCursor, data.SpeedFocused)
 
 	// Hooks state
 	hooksState := "ON"
@@ -72,7 +73,7 @@ func RenderSidebar(ctx RenderContext, data SidebarData) string {
 	)
 }
 
-func renderSpeedBox(width int, cursor int) string {
+func renderSpeedBox(width int, cursor int, focused bool) string {
 	speedItems := []struct {
 		key   string
 		label string
@@ -94,9 +95,14 @@ func renderSpeedBox(width int, cursor int) string {
 		speedActions = append(speedActions, line)
 	}
 
+	title := ui.BoxTitleStyle.Render("SPEED")
+	if focused {
+		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("SPEED")
+	}
+
 	speedContent := lipgloss.JoinVertical(lipgloss.Left, speedActions...)
 	return ui.BoxStyle.Width(width - 2).Render(
-		ui.BoxTitleStyle.Render("SPEED") + "\n" + speedContent,
+		title + "\n" + speedContent,
 	)
 }
 

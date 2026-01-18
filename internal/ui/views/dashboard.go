@@ -57,6 +57,7 @@ func RenderDashboard(ctx RenderContext, data DashboardViewData) string {
 		SkipHooks:       data.SkipHooks,
 		UpdateAvailable: data.UpdateAvailable,
 		FlashMessage:    data.FlashMessage,
+		SpeedFocused:    !data.FileBoxFocused && !data.VercelFocused,
 	})
 
 	main := RenderDashboardMain(ctx, data)
@@ -73,13 +74,16 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	branchBox := renderBranchBox(width, data.Branch, data.Ahead, data.Behind)
 
 	// Files box
-	filesBox := renderFilesBox(width, data.ChangedFiles, data.FilesExpanded, data.FileList)
+	filesBox := renderFilesBox(width, data.ChangedFiles, data.FilesExpanded, data.FileList, data.FileBoxFocused)
 
 	// Metrics
 	metrics := renderMetrics(data)
 
 	// Vercel summary
 	vercelBox := renderVercelSummaryBox(width, data.VercelSummary, data.VercelFocused)
+
+	// Context strip (always visible)
+	contextStrip := renderContextStrip(data)
 
 	// Tip box
 	tip := getContextualTip(data)
@@ -92,6 +96,8 @@ func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 		branchBox,
 		"",
 		metrics,
+		"",
+		contextStrip,
 		"",
 		vercelBox,
 		"",
@@ -167,7 +173,7 @@ func renderBranchBox(width int, branch string, ahead, behind int) string {
 	return ui.BoxStyle.Width(width - 2).Render(branchLine)
 }
 
-func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList list.Model) string {
+func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList list.Model, focused bool) string {
 	var filesContent string
 
 	if len(files) > 0 {
@@ -182,14 +188,46 @@ func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList 
 
 		filesContent = fileList.View()
 	} else {
-
 		// Use manual title for empty state to match look
 		title := ui.BoxTitleStyle.Render("Changes")
+		if focused {
+			title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("Changes")
+		}
 		content := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓ Clean")
 		filesContent = title + "\n" + content
 	}
 
 	return ui.BoxStyle.Width(width - 2).Render(filesContent)
+}
+
+func renderContextStrip(data DashboardViewData) string {
+	parts := []string{}
+
+	if data.Branch != "" {
+		branch := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render(data.Branch)
+		parts = append(parts, branch)
+	}
+
+	if data.LinesAdded > 0 || data.LinesRemoved > 0 {
+		added := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("+%d", data.LinesAdded))
+		removed := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("-%d", data.LinesRemoved))
+		parts = append(parts, fmt.Sprintf("%s/%s lines", added, removed))
+	}
+
+	if data.StagedCount > 0 {
+		staged := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("%d staged", data.StagedCount))
+		parts = append(parts, staged)
+	}
+
+	if data.VercelSummary.Enabled {
+		parts = append(parts, RenderVercelSummary(data.VercelSummary.Summary))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+
+	return ui.CardStyle.Render(strings.Join(parts, "  •  "))
 }
 
 func getContextualTip(data DashboardViewData) string {

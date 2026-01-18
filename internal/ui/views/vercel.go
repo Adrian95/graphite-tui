@@ -2,6 +2,7 @@ package views
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/Adrian95/graphite-tui/v2/internal/ui"
@@ -36,6 +37,8 @@ func RenderVercel(data VercelViewData, width int) string {
 	if len(data.Statuses) == 0 {
 		lines = append(lines, ui.SubtitleStyle.Render("No deployments found"))
 	} else {
+		lines = append(lines, ui.SubtitleStyle.Render("Branch                 Target    Status     Age"))
+		lines = append(lines, ui.SubtitleStyle.Render(strings.Repeat("─", 54)))
 		for i, status := range data.Statuses {
 			cursor := "  "
 			if i == data.Cursor {
@@ -44,7 +47,19 @@ func RenderVercel(data VercelViewData, width int) string {
 
 			previewState := formatState(status.Preview)
 			prodState := formatState(status.Production)
-			line := fmt.Sprintf("%s%s  P:%s  Prod:%s", cursor, status.Branch, previewState, prodState)
+
+			// Prefer production row if available; otherwise preview
+			rowTarget := "preview"
+			rowState := previewState
+			age := formatAge(status.Preview)
+			if status.Production != nil {
+				rowTarget = "prod"
+				rowState = prodState
+				age = formatAge(status.Production)
+			}
+
+			line := fmt.Sprintf("%s%-20s %-8s %-10s %s", cursor, truncate(status.Branch, 20), rowTarget, rowState, age)
+
 			if i == data.Cursor {
 				line = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render(line)
 			}
@@ -104,4 +119,38 @@ func formatTime(ts int64) string {
 		return ""
 	}
 	return time.UnixMilli(ts).Format("15:04")
+}
+
+func formatAge(dep *vercel.Deployment) string {
+	if dep == nil {
+		return "-"
+	}
+	created := dep.CreatedAt
+	if created == 0 {
+		created = dep.Created
+	}
+	if created == 0 {
+		return "-"
+	}
+	age := time.Since(time.UnixMilli(created))
+	if age.Hours() >= 24 {
+		return fmt.Sprintf("%dd", int(age.Hours()/24))
+	}
+	if age.Hours() >= 1 {
+		return fmt.Sprintf("%dh", int(age.Hours()))
+	}
+	if age.Minutes() >= 1 {
+		return fmt.Sprintf("%dm", int(age.Minutes()))
+	}
+	return "just now"
+}
+
+func truncate(value string, max int) string {
+	if len(value) <= max {
+		return value
+	}
+	if max <= 3 {
+		return value[:max]
+	}
+	return value[:max-3] + "..."
 }

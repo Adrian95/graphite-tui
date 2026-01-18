@@ -60,6 +60,9 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 			statusMap[branch] = &DeploymentStatus{Branch: branch}
 		}
 
+		matchedPreview := false
+		matchedProduction := false
+
 		updateLatest := func(target string, dep Deployment) {
 			branch := dep.GitSource.Ref
 			if branch == "" {
@@ -79,6 +82,7 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 				created = dep.Created
 			}
 			if target == "production" {
+				matchedProduction = true
 				current := statusMap[branch].Production
 				currentCreated := int64(0)
 				if current != nil {
@@ -94,6 +98,7 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 				}
 				return
 			}
+			matchedPreview = true
 			current := statusMap[branch].Preview
 			currentCreated := int64(0)
 			if current != nil {
@@ -125,24 +130,40 @@ func FetchStatus(client *Client, branches []string) tea.Cmd {
 			statuses = append(statuses, *status)
 		}
 
-		// If we didn't match any branches, fallback to latest production deployment
-		if len(statuses) == 0 {
-			status := DeploymentStatus{Branch: "production"}
-			var latestCreated int64
+		// If we didn't match any branches, fallback to latest deployments
+		if len(statuses) == 0 || !matchedPreview || !matchedProduction {
+			fallback := DeploymentStatus{Branch: "production"}
+			var latestProd int64
 			for _, dep := range prodResp.Deployments {
 				created := dep.CreatedAt
 				if created == 0 {
 					created = dep.Created
 				}
-				if status.Production == nil || created > latestCreated {
-					latestCreated = created
+				if fallback.Production == nil || created > latestProd {
+					latestProd = created
 					copy := dep
-					status.Production = &copy
-					status.ProductionURL = "https://" + dep.URL
+					fallback.Production = &copy
+					fallback.ProductionURL = "https://" + dep.URL
 				}
 			}
-			if status.Production != nil {
-				statuses = append(statuses, status)
+			var latestPreview int64
+			for _, dep := range previewResp.Deployments {
+				if strings.ToLower(dep.Target) == "production" {
+					continue
+				}
+				created := dep.CreatedAt
+				if created == 0 {
+					created = dep.Created
+				}
+				if fallback.Preview == nil || created > latestPreview {
+					latestPreview = created
+					copy := dep
+					fallback.Preview = &copy
+					fallback.PreviewURL = "https://" + dep.URL
+				}
+			}
+			if fallback.Production != nil || fallback.Preview != nil {
+				statuses = append(statuses, fallback)
 			}
 		}
 		sort.Slice(statuses, func(i, j int) bool {

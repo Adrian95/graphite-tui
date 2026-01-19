@@ -34,7 +34,7 @@ type model struct {
 	fileList  list.Model
 
 	// Focus management
-	focusIndex int // 0: Speed Box, 1: File List, 2: Vercel Panel
+	focusIndex int // 0: Speed Box, 1: File List, 2: Vercel Panel, 3: Stack Panel
 
 	// Dimensions
 	width  int
@@ -135,6 +135,7 @@ func initialModel() model {
 		dashboardData: views.DashboardViewData{
 			CurrentVersion: config.GetCurrentVersion(),
 			VercelSummary:  vercelData,
+			StackData:      views.StackViewData{},
 		},
 	}
 }
@@ -237,6 +238,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := views.FilesToItems(msg.ChangedFiles)
 		cmd = m.fileList.SetItems(items)
 		cmds = append(cmds, cmd)
+		cmds = append(cmds, git.LoadStack())
 
 	case git.StackStatusMsg:
 		// We can add stack info to dashboardData if we want to display it in the future
@@ -268,6 +270,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		items := views.FilesToItems(msg.ChangedFiles)
 		cmd = m.fileList.SetItems(items)
 		cmds = append(cmds, cmd)
+		cmds = append(cmds, git.LoadStack())
 
 	case git.CmdFinishedMsg:
 		m.outputData.Error = msg.Err
@@ -304,6 +307,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				break
 			}
 		}
+		m.dashboardData.StackData = m.stackData
 
 	case git.ReflogLoadedMsg:
 		m.reflogData.Items = msg
@@ -371,7 +375,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dashboardData.FlashMessage = ""
 		}
 		if m.stateID != state.Running {
-			cmds = append(cmds, ui.RefreshNow())
+			cmds = append(cmds, ui.RefreshNow(), git.LoadStack())
 		}
 		cmds = append(cmds, ui.TickEvery(3*time.Second))
 		return m, tea.Batch(cmds...)
@@ -409,7 +413,7 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key == "tab" {
-		m.focusIndex = (m.focusIndex + 1) % 3
+		m.focusIndex = (m.focusIndex + 1) % 4
 		// Adjust list styling based on focus
 		if m.focusIndex == 1 {
 			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
@@ -447,6 +451,11 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Vercel Focus
 	if m.focusIndex == 2 {
 		return m.handleVercelKeys(key)
+	}
+
+	// Stack Focus
+	if m.focusIndex == 3 {
+		return m.handleStackPanelKeys(key)
 	}
 
 	// Speed Box / Standard Dashboard Focus (Index 0)
@@ -1017,6 +1026,9 @@ func (m model) handleVercelKeys(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		if len(m.vercelData.Statuses) > 0 {
 			status := m.vercelData.Statuses[m.vercelData.Cursor]
+			if status.ProductionURL != "" {
+				return m, vercel.OpenURL(status.ProductionURL)
+			}
 			if status.PreviewURL != "" {
 				return m, vercel.OpenURL(status.PreviewURL)
 			}
@@ -1036,6 +1048,44 @@ func (m model) handleVercelKeys(key string) (tea.Model, tea.Cmd) {
 			if status.ProductionURL != "" {
 				return m, vercel.OpenURL(status.ProductionURL)
 			}
+		}
+
+	case "o":
+		if len(m.vercelData.Statuses) > 0 {
+			status := m.vercelData.Statuses[m.vercelData.Cursor]
+			if status.PreviewURL != "" {
+				return m, vercel.OpenURL(status.PreviewURL)
+			}
+		}
+	}
+
+	return m, nil
+}
+
+func (m model) handleStackPanelKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q":
+		m.focusIndex = 0
+		return m, nil
+
+	case "up", "k":
+		if m.stackData.Cursor > 0 {
+			m.stackData.Cursor--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.stackData.Cursor < len(m.stackData.Items)-1 {
+			m.stackData.Cursor++
+		}
+		return m, nil
+
+	case "enter":
+		if len(m.stackData.Items) > 0 {
+			target := m.stackData.Items[m.stackData.Cursor].Name
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "gt checkout"}
+			return m, git.ExecuteCheckout(target)
 		}
 	}
 
@@ -1160,6 +1210,7 @@ func (m model) View() string {
 	m.dashboardData.FileList = m.fileList
 	m.dashboardData.FileBoxFocused = m.focusIndex == 1
 	m.dashboardData.VercelFocused = m.focusIndex == 2
+	m.dashboardData.StackFocused = m.focusIndex == 3
 	m.dashboardData.VercelSummary = m.vercelData
 
 	switch m.stateID {

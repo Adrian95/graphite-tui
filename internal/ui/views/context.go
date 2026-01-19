@@ -36,6 +36,13 @@ func (c RenderContext) MainWidth() int {
 	return w
 }
 
+// MainSplitWidth returns half-width for panel layout
+func (c RenderContext) MainSplitWidth() int {
+	w := c.MainWidth()
+	gap := 2
+	return (w - gap) / 2
+}
+
 // --- Common Render Helpers ---
 
 // RenderLayout combines sidebar, main content, and footer

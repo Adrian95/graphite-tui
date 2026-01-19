@@ -41,9 +41,13 @@ type DashboardViewData struct {
 	FlashMessage    string
 	FileBoxFocused  bool
 	VercelFocused   bool
+	StackFocused    bool
 
 	// Vercel
 	VercelSummary VercelViewData
+
+	// Stack
+	StackData StackViewData
 
 	// Version
 	CurrentVersion string
@@ -57,7 +61,7 @@ func RenderDashboard(ctx RenderContext, data DashboardViewData) string {
 		SkipHooks:       data.SkipHooks,
 		UpdateAvailable: data.UpdateAvailable,
 		FlashMessage:    data.FlashMessage,
-		SpeedFocused:    !data.FileBoxFocused && !data.VercelFocused,
+		SpeedFocused:    !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused,
 	})
 
 	main := RenderDashboardMain(ctx, data)
@@ -70,42 +74,23 @@ func RenderDashboard(ctx RenderContext, data DashboardViewData) string {
 func RenderDashboardMain(ctx RenderContext, data DashboardViewData) string {
 	width := ctx.MainWidth()
 
-	// Branch box
+	// Minimal top status line
 	branchBox := renderBranchBox(width, data.Branch, data.Ahead, data.Behind)
-
-	// Files box
-	filesBox := renderFilesBox(width, data.ChangedFiles, data.FilesExpanded, data.FileList, data.FileBoxFocused)
-
-	// Metrics
 	metrics := renderMetrics(data)
 
-	// Vercel summary
-	vercelBox := renderVercelSummaryBox(width, data.VercelSummary, data.VercelFocused)
+	mainPanels := RenderDashboardPanels(ctx, data)
 
-	// Context strip (focus only)
-	contextStrip := ""
-	if data.FileBoxFocused || data.VercelFocused {
-		contextStrip = renderContextStrip(data)
-	}
-
-	// Tip box
 	tip := getContextualTip(data)
 	tipBox := ui.CardStyle.Width(width - 2).Render(
 		lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("→ ") +
 			lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorFg)).Render(tip),
 	)
 
-	parts := []string{branchBox, "", metrics}
-	if contextStrip != "" {
-		parts = append(parts, "", contextStrip)
+	parts := []string{branchBox}
+	if metrics != "" {
+		parts = append(parts, "", metrics)
 	}
-	if !data.VercelFocused {
-		parts = append(parts, "", vercelBox)
-	}
-	if !data.VercelFocused {
-		parts = append(parts, "", filesBox)
-	}
-	parts = append(parts, "", tipBox)
+	parts = append(parts, "", mainPanels, "", tipBox)
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 

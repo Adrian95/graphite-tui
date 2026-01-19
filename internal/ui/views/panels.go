@@ -77,11 +77,11 @@ func renderFilesPanel(width int, data DashboardViewData) string {
 			safeWidth = 20
 		}
 		fileList.SetWidth(safeWidth)
-		fileList.SetHeight(8)
+		fileList.SetHeight(10)
 		content = fileList.View()
 	}
 
-	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
+	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
 }
 
 func renderVercelPanel(width int, data DashboardViewData) string {

@@ -452,10 +452,13 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, git.ExecuteStageAll(true)
 		case "u":
 			return m, git.ExecuteStageAll(false)
+		default:
+			// Only pass through to list for navigation keys
+			m.fileList, cmd = m.fileList.Update(msg)
+			return m, cmd
 		}
 
-		m.fileList, cmd = m.fileList.Update(msg)
-		return m, cmd
+		return m, nil
 	}
 
 	// Vercel Focus

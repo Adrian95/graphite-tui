@@ -323,25 +323,31 @@ func CheckStackStatus() tea.Msg {
 }
 
 // CheckGitStatus gets comprehensive git/graphite status
-// Deprecated: Use CheckLocalStatus and CheckStackStatus
-func CheckGitStatus() tea.Msg {
-	// For legacy compatibility, return a combined StatusMsg
-	// But in new parallel model, this shouldn't be used directly by the loop ideally.
-	// We'll construct it synchronously here for now.
+
+func CheckGitStatus() (LocalStatusMsg, StackStatusMsg) {
 	local := CheckLocalStatus().(LocalStatusMsg)
 	stack := CheckStackStatus().(StackStatusMsg)
+	return local, stack
+}
 
-	return StatusMsg{
-		Branch:        local.Branch,
-		Stack:         stack.Stack,
-		Ahead:         local.Ahead,
-		Behind:        local.Behind,
-		ChangedFiles:  local.ChangedFiles,
-		HasStack:      stack.HasStack,
-		OnMain:        local.OnMain,
-		GtInitialized: local.GtInitialized,
-		Suggestion:    local.Suggestion,
+// CheckMinimalStatus gets lightweight status without expensive file operations
+func CheckMinimalStatus() LocalStatusMsg {
+	status := LocalStatusMsg{}
+
+	// Check if Graphite is initialized
+	if _, err := os.Stat(".git/.graphite_repo_config"); err == nil {
+		status.GtInitialized = true
 	}
+
+	// Get current branch only
+	if out, err := exec.Command("git", "branch", "--show-current").Output(); err == nil {
+		status.Branch = strings.TrimSpace(string(out))
+	}
+
+	// Skip expensive operations (file listing, ahead/behind counts)
+	// These will be loaded lazily when needed
+
+	return status
 }
 
 func generateSuggestion(s LocalStatusMsg) string {

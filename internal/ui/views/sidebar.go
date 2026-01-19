@@ -17,7 +17,7 @@ type SidebarData struct {
 
 // RenderSidebar renders the left sidebar
 func RenderSidebar(ctx RenderContext, data SidebarData) string {
-	width := ctx.SidebarWidth()
+	width := ctx.GetSidebarWidth()
 
 	// App title
 	appTitle := lipgloss.NewStyle().

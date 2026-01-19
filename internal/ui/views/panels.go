@@ -12,13 +12,30 @@ import (
 
 // RenderDashboardPanels renders the main panel layout
 func RenderDashboardPanels(ctx RenderContext, data DashboardViewData) string {
+	mode := ctx.GetLayoutMode()
+
+	switch mode {
+	case LayoutGrid2x2:
+		return renderGridLayout(ctx, data)
+	case LayoutStack1x4:
+		return renderStackLayout(ctx, data)
+	case LayoutSingle:
+		return renderSingleLayout(ctx, data)
+	}
+
+	// Fallback to grid
+	return renderGridLayout(ctx, data)
+}
+
+func renderGridLayout(ctx RenderContext, data DashboardViewData) string {
 	panelWidth := ctx.MainSplitWidth()
 	gap := "  "
 
-	// Panels
-	speedPanel := renderSpeedPanel(panelWidth, data)
-	filesPanel := renderFilesPanel(panelWidth, data)
-	vercelPanel := renderVercelPanel(panelWidth, data)
+	// Panels with focus states
+	speedFocused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
+	speedPanel := renderSpeedPanel(panelWidth, data, speedFocused)
+	filesPanel := renderFilesPanel(panelWidth, data, data.FileBoxFocused)
+	vercelPanel := renderVercelPanel(panelWidth, data, data.VercelFocused)
 	stackPanel := RenderStackPanel(panelWidth, data.StackData, data.StackFocused)
 
 	// Layout rows
@@ -36,7 +53,45 @@ func RenderDashboardPanels(ctx RenderContext, data DashboardViewData) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, gap, rightColumn)
 }
 
-func renderSpeedPanel(width int, data DashboardViewData) string {
+func renderStackLayout(ctx RenderContext, data DashboardViewData) string {
+	fullWidth := ctx.MainWidth() - 2 // Account for borders
+
+	// Panels with focus states
+	speedFocused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
+	speedPanel := renderSpeedPanel(fullWidth, data, speedFocused)
+	filesPanel := renderFilesPanel(fullWidth, data, data.FileBoxFocused)
+	vercelPanel := renderVercelPanel(fullWidth, data, data.VercelFocused)
+	stackPanel := RenderStackPanel(fullWidth, data.StackData, data.StackFocused)
+
+	// Stack vertically
+	return lipgloss.JoinVertical(lipgloss.Left,
+		speedPanel,
+		"",
+		filesPanel,
+		"",
+		vercelPanel,
+		"",
+		stackPanel,
+	)
+}
+
+func renderSingleLayout(ctx RenderContext, data DashboardViewData) string {
+	fullWidth := ctx.MainWidth() - 2 // Account for borders
+
+	// Show only the currently focused panel
+	if data.FileBoxFocused {
+		return renderFilesPanel(fullWidth, data, true)
+	} else if data.VercelFocused {
+		return renderVercelPanel(fullWidth, data, true)
+	} else if data.StackFocused {
+		return RenderStackPanel(fullWidth, data.StackData, true)
+	} else {
+		// Default to speed panel
+		return renderSpeedPanel(fullWidth, data, true)
+	}
+}
+
+func renderSpeedPanel(width int, data DashboardViewData, isFocused bool) string {
 	focused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
 	title := renderPanelTitle("Speed", focused)
 
@@ -61,10 +116,15 @@ func renderSpeedPanel(width int, data DashboardViewData) string {
 
 	content := strings.Join(actions, "\n")
 
-	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
+	// Use focused or unfocused styling
+	style := ui.BorderedBoxStyleUnfocused
+	if isFocused {
+		style = ui.BorderedBoxStyleFocused
+	}
+	return style.Width(width - 2).Render(title + "\n" + content)
 }
 
-func renderFilesPanel(width int, data DashboardViewData) string {
+func renderFilesPanel(width int, data DashboardViewData, isFocused bool) string {
 	title := renderPanelTitle("Changes", data.FileBoxFocused)
 
 	var content string
@@ -81,20 +141,32 @@ func renderFilesPanel(width int, data DashboardViewData) string {
 		content = fileList.View()
 	}
 
-	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
+	// Use focused or unfocused styling
+	style := ui.BorderedBoxStyleUnfocused
+	if isFocused {
+		style = ui.BorderedBoxStyleFocused
+	}
+	return style.Width(width - 2).Render(title + "\n" + content)
 }
 
-func renderVercelPanel(width int, data DashboardViewData) string {
+func renderVercelPanel(width int, data DashboardViewData, isFocused bool) string {
 	title := renderPanelTitle("Vercel", data.VercelFocused)
 
 	if !data.VercelSummary.Enabled {
 		content := ui.SubtitleStyle.Render("Not configured")
-		return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
-
+		style := ui.BorderedBoxStyleUnfocused
+		if isFocused {
+			style = ui.BorderedBoxStyleFocused
+		}
+		return style.Width(width - 2).Render(title + "\n" + content)
 	}
 
 	table := RenderVercelTable(width, data.VercelSummary, data.VercelFocused)
-	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + table)
+	style := ui.BorderedBoxStyleUnfocused
+	if isFocused {
+		style = ui.BorderedBoxStyleFocused
+	}
+	return style.Width(width - 2).Render(title + "\n" + table)
 }
 
 func renderPanelTitle(label string, focused bool) string {

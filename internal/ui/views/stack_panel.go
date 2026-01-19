@@ -9,15 +9,19 @@ import (
 )
 
 // RenderStackPanel renders the stack as a dashboard panel
-func RenderStackPanel(width int, data StackViewData, focused bool) string {
+func RenderStackPanel(width int, data StackViewData, isPanelFocused bool) string {
 	title := ui.BoxTitleStyle.Render("Stack")
-	if focused {
+	if isPanelFocused {
 		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("Stack")
 	}
 
 	if len(data.Items) == 0 {
 		content := ui.SubtitleStyle.Render("No stack")
-		return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
+		style := ui.BorderedBoxStyleUnfocused
+		if isPanelFocused {
+			style = ui.BorderedBoxStyleFocused
+		}
+		return style.Width(width - 2).Render(title + "\n" + content)
 	}
 
 	var lines []string
@@ -30,7 +34,7 @@ func RenderStackPanel(width int, data StackViewData, focused bool) string {
 		item := data.Items[i]
 		indent := strings.Repeat(" ", item.Level*2)
 		cursor := "  "
-		if i == data.Cursor && focused {
+		if i == data.Cursor && isPanelFocused {
 			cursor = ui.MenuSelectedStyle.Render("❯ ")
 		}
 		name := item.Name
@@ -40,5 +44,9 @@ func RenderStackPanel(width int, data StackViewData, focused bool) string {
 		lines = append(lines, fmt.Sprintf("%s%s%s", cursor, indent, name))
 	}
 
-	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + strings.Join(lines, "\n"))
+	style := ui.BorderedBoxStyleUnfocused
+	if isPanelFocused {
+		style = ui.BorderedBoxStyleFocused
+	}
+	return style.Width(width - 2).Render(title + "\n" + strings.Join(lines, "\n"))
 }

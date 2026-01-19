@@ -50,6 +50,21 @@ var (
 				PaddingLeft(1).
 				PaddingRight(1)
 
+	// Focused panel styling (bold, thick border)
+	BorderedBoxStyleFocused = lipgloss.NewStyle().
+				Border(lipgloss.ThickBorder()).
+				BorderForeground(lipgloss.Color(ColorAccent)).
+				PaddingLeft(1).
+				PaddingRight(1).
+				Bold(true)
+
+	// Unfocused panel styling (thin border)
+	BorderedBoxStyleUnfocused = lipgloss.NewStyle().
+					Border(lipgloss.NormalBorder()).
+					BorderForeground(lipgloss.Color(ColorBorder)).
+					PaddingLeft(1).
+					PaddingRight(1)
+
 	// Navigation / Menu
 	MenuItemStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ColorSub))

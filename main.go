@@ -267,9 +267,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboardData.ChangedFiles = msg.ChangedFiles
 		m.dashboardData.GtInitialized = msg.GtInitialized
 		m.dashboardData.OnMain = msg.OnMain
-		items := views.FilesToItems(msg.ChangedFiles)
-		cmd = m.fileList.SetItems(items)
-		cmds = append(cmds, cmd)
+
+		// Lazy loading: only update file list if Files panel is focused
+		if m.focusIndex == 1 {
+			items := views.FilesToItems(msg.ChangedFiles)
+			cmd = m.fileList.SetItems(items)
+			cmds = append(cmds, cmd)
+		}
 		cmds = append(cmds, git.LoadStack())
 
 	case git.CmdFinishedMsg:
@@ -375,18 +379,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dashboardData.FlashMessage = ""
 		}
 		if m.stateID != state.Running {
-			cmds = append(cmds, ui.RefreshNow(), git.LoadStack())
+			cmds = append(cmds, ui.SmartRefresh(m.focusIndex))
 		}
-		cmds = append(cmds, ui.TickEvery(3*time.Second))
+		cmds = append(cmds, ui.TickEvery(ui.GetRefreshInterval(m.focusIndex)))
 		return m, tea.Batch(cmds...)
 
 	case ui.VercelTickMsg:
-		if m.vercelClient != nil {
+		// Only refresh Vercel when panel is focused
+		if m.vercelClient != nil && m.focusIndex == 2 {
 			branches := m.collectVercelBranches()
 			cmds = append(cmds, vercel.FetchStatus(m.vercelClient, branches))
-			cmds = append(cmds, ui.VercelTickEvery(15*time.Second))
-			return m, tea.Batch(cmds...)
 		}
+		// Always schedule next tick, but less frequently when not focused
+		interval := 15 * time.Second
+		if m.focusIndex != 2 {
+			interval = 60 * time.Second // Much less frequent when not focused
+		}
+		cmds = append(cmds, ui.VercelTickEvery(interval))
+		return m, tea.Batch(cmds...)
 
 	case spinner.TickMsg:
 		m.spinner, cmd = m.spinner.Update(msg)

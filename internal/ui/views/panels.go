@@ -128,7 +128,10 @@ func renderFilesPanel(width int, data DashboardViewData, isFocused bool) string 
 	title := renderPanelTitle("Changes", data.FileBoxFocused)
 
 	var content string
-	if len(data.ChangedFiles) == 0 {
+	if !data.StatusLoaded {
+		// Show loading state before first status fetch completes
+		content = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSub)).Render("Loading...")
+	} else if len(data.ChangedFiles) == 0 {
 		content = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓ Clean")
 	} else {
 		fileList := data.FileList

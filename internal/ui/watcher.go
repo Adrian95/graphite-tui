@@ -9,15 +9,30 @@ import (
 
 // CachedStatus stores git status to reduce command frequency
 type CachedStatus struct {
-	Branch      string
-	Ahead       int
-	Behind      int
-	FileCount   int
+	Branch       string
+	Ahead        int
+	Behind       int
+	ChangedFiles []git.ChangedFile
+	StagedCount  int
+	LinesAdded   int
+	LinesRemoved int
+	NewFiles     int
+	ModFiles     int
+	DelFiles     int
+	LastUpdated  time.Time
+	IsValid      bool
+}
+
+var statusCache CachedStatus
+
+// StackCache stores stack data separately (changes less frequently)
+type StackCache struct {
+	Items       []git.StackItem
 	LastUpdated time.Time
 	IsValid     bool
 }
 
-var statusCache CachedStatus
+var stackCache StackCache
 
 // --- Ticker for periodic refresh ---
 
@@ -51,12 +66,19 @@ func RefreshNow() tea.Cmd {
 
 // checkCachedLocalStatus returns cached status if recent, otherwise refreshes
 func checkCachedLocalStatus() tea.Msg {
-	// Cache for 5 seconds to reduce git commands
-	if statusCache.IsValid && time.Since(statusCache.LastUpdated) < 5*time.Second {
+	// Cache for 10 seconds to reduce git commands
+	if statusCache.IsValid && time.Since(statusCache.LastUpdated) < 10*time.Second {
 		return git.LocalStatusMsg{
 			Branch:        statusCache.Branch,
 			Ahead:         statusCache.Ahead,
 			Behind:        statusCache.Behind,
+			ChangedFiles:  statusCache.ChangedFiles,
+			StagedCount:   statusCache.StagedCount,
+			LinesAdded:    statusCache.LinesAdded,
+			LinesRemoved:  statusCache.LinesRemoved,
+			NewFiles:      statusCache.NewFiles,
+			ModFiles:      statusCache.ModFiles,
+			DelFiles:      statusCache.DelFiles,
 			GtInitialized: true, // Assume if we have cache
 			OnMain:        statusCache.Branch == "main" || statusCache.Branch == "master",
 		}
@@ -66,12 +88,18 @@ func checkCachedLocalStatus() tea.Msg {
 	msg := git.CheckLocalStatus()
 	if localMsg, ok := msg.(git.LocalStatusMsg); ok {
 		statusCache = CachedStatus{
-			Branch:      localMsg.Branch,
-			Ahead:       localMsg.Ahead,
-			Behind:      localMsg.Behind,
-			FileCount:   len(localMsg.ChangedFiles),
-			LastUpdated: time.Now(),
-			IsValid:     true,
+			Branch:       localMsg.Branch,
+			Ahead:        localMsg.Ahead,
+			Behind:       localMsg.Behind,
+			ChangedFiles: localMsg.ChangedFiles,
+			StagedCount:  localMsg.StagedCount,
+			LinesAdded:   localMsg.LinesAdded,
+			LinesRemoved: localMsg.LinesRemoved,
+			NewFiles:     localMsg.NewFiles,
+			ModFiles:     localMsg.ModFiles,
+			DelFiles:     localMsg.DelFiles,
+			LastUpdated:  time.Now(),
+			IsValid:      true,
 		}
 	}
 	return msg
@@ -128,14 +156,25 @@ func checkMinimalStatus() tea.Msg {
 // GetRefreshInterval returns appropriate refresh interval based on focus
 func GetRefreshInterval(focusIndex int) time.Duration {
 	switch focusIndex {
-	case 0: // Speed panel - less frequent when not active
+	case 0: // Speed panel - less frequent
+		return 15 * time.Second
+	case 1: // Files panel - moderate frequency
 		return 8 * time.Second
-	case 1: // Files panel - more frequent for file changes
-		return 3 * time.Second
-	case 2: // Vercel panel - moderate frequency
-		return 5 * time.Second
-	case 3: // Stack panel - frequent for navigation
-		return 4 * time.Second
+	case 2: // Vercel panel - handled separately
+		return 10 * time.Second
+	case 3: // Stack panel - moderate frequency
+		return 10 * time.Second
 	}
-	return 3 * time.Second
+	return 10 * time.Second
+}
+
+// InvalidateCache clears the status cache to force a fresh fetch
+func InvalidateCache() {
+	statusCache.IsValid = false
+	stackCache.IsValid = false
+}
+
+// InvalidateStatusCache clears only the status cache (for file operations)
+func InvalidateStatusCache() {
+	statusCache.IsValid = false
 }

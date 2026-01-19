@@ -222,9 +222,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboardData.Branch = msg.Branch
 		m.dashboardData.Ahead = msg.Ahead
 		m.dashboardData.Behind = msg.Behind
-		m.dashboardData.ChangedFiles = msg.ChangedFiles
 		m.dashboardData.GtInitialized = msg.GtInitialized
 		m.dashboardData.OnMain = msg.OnMain
+		m.dashboardData.StatusLoaded = true
 
 		// Metrics
 		m.dashboardData.LinesAdded = msg.LinesAdded
@@ -234,11 +234,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboardData.DelFiles = msg.DelFiles
 		m.dashboardData.StagedCount = msg.StagedCount
 
-		// Update file list
-		items := views.FilesToItems(msg.ChangedFiles)
-		cmd = m.fileList.SetItems(items)
-		cmds = append(cmds, cmd)
-		cmds = append(cmds, git.LoadStack())
+		// Only update file list if files actually changed (dirty check)
+		if !filesEqual(m.dashboardData.ChangedFiles, msg.ChangedFiles) {
+			m.dashboardData.ChangedFiles = msg.ChangedFiles
+			items := views.FilesToItems(msg.ChangedFiles)
+			cmd = m.fileList.SetItems(items)
+			cmds = append(cmds, cmd)
+		}
 
 	case git.StackStatusMsg:
 		// We can add stack info to dashboardData if we want to display it in the future
@@ -264,21 +266,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboardData.Branch = msg.Branch
 		m.dashboardData.Ahead = msg.Ahead
 		m.dashboardData.Behind = msg.Behind
-		m.dashboardData.ChangedFiles = msg.ChangedFiles
 		m.dashboardData.GtInitialized = msg.GtInitialized
 		m.dashboardData.OnMain = msg.OnMain
+		m.dashboardData.StatusLoaded = true
 
-		// Lazy loading: only update file list if Files panel is focused
-		if m.focusIndex == 1 {
+		// Only update file list if files actually changed
+		if !filesEqual(m.dashboardData.ChangedFiles, msg.ChangedFiles) {
+			m.dashboardData.ChangedFiles = msg.ChangedFiles
 			items := views.FilesToItems(msg.ChangedFiles)
 			cmd = m.fileList.SetItems(items)
 			cmds = append(cmds, cmd)
 		}
-		cmds = append(cmds, git.LoadStack())
 
 	case git.CmdFinishedMsg:
 		m.outputData.Error = msg.Err
 		m.outputData.Command = msg.Command
+
+		// Invalidate cache for commands that modify files or branches
+		ui.InvalidateCache()
 
 		if msg.Err != nil {
 			m.outputData.Output = msg.Stderr
@@ -301,6 +306,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		m.outputData.IsRunning = false
 		m.viewport.SetContent(m.outputData.Output)
+		// Load stack after branch-modifying commands
+		if isBranchModifyingCommand(msg.Command) {
+			return m, tea.Batch(ui.RefreshNow(), git.LoadStack())
+		}
 		return m, ui.RefreshNow()
 
 	case git.StackLoadedMsg:
@@ -385,17 +394,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case ui.VercelTickMsg:
-		// Only refresh Vercel when panel is focused
+		// Only refresh Vercel when panel is focused - completely pause otherwise
 		if m.vercelClient != nil && m.focusIndex == 2 {
 			branches := m.collectVercelBranches()
 			cmds = append(cmds, vercel.FetchStatus(m.vercelClient, branches))
+			// Only reschedule if focused
+			cmds = append(cmds, ui.VercelTickEvery(15*time.Second))
 		}
-		// Always schedule next tick, but less frequently when not focused
-		interval := 15 * time.Second
-		if m.focusIndex != 2 {
-			interval = 60 * time.Second // Much less frequent when not focused
-		}
-		cmds = append(cmds, ui.VercelTickEvery(interval))
+		// Don't reschedule if not focused - will be restarted when panel gains focus
 		return m, tea.Batch(cmds...)
 
 	case spinner.TickMsg:
@@ -423,6 +429,7 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key == "tab" || key == "right" {
+		prevFocus := m.focusIndex
 		m.focusIndex = (m.focusIndex + 1) % 4
 		// Adjust list styling based on focus
 		if m.focusIndex == 1 {
@@ -430,15 +437,24 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.fileList.Styles.Title = ui.BoxTitleStyle
 		}
+		// Start Vercel ticker if focusing Vercel panel
+		if m.focusIndex == 2 && prevFocus != 2 && m.vercelClient != nil {
+			return m, tea.Batch(vercel.FetchStatus(m.vercelClient, m.collectVercelBranches()), ui.VercelTickEvery(15*time.Second))
+		}
 		return m, nil
 	}
 
 	if key == "shift+tab" || key == "left" {
+		prevFocus := m.focusIndex
 		m.focusIndex = (m.focusIndex - 1 + 4) % 4
 		if m.focusIndex == 1 {
 			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
 		} else {
 			m.fileList.Styles.Title = ui.BoxTitleStyle
+		}
+		// Start Vercel ticker if focusing Vercel panel
+		if m.focusIndex == 2 && prevFocus != 2 && m.vercelClient != nil {
+			return m, tea.Batch(vercel.FetchStatus(m.vercelClient, m.collectVercelBranches()), ui.VercelTickEvery(15*time.Second))
 		}
 		return m, nil
 	}
@@ -1277,6 +1293,35 @@ func (m model) View() string {
 	default:
 		return views.RenderDashboard(ctx, m.dashboardData)
 	}
+}
+
+// --- Helpers ---
+
+// filesEqual compares two slices of ChangedFile for equality
+func filesEqual(a, b []git.ChangedFile) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].Path != b[i].Path || a[i].Status != b[i].Status || a[i].Staged != b[i].Staged {
+			return false
+		}
+	}
+	return true
+}
+
+// isBranchModifyingCommand returns true if the command modifies branch structure
+func isBranchModifyingCommand(cmd string) bool {
+	branchCommands := []string{
+		"gt create", "gt checkout", "gt merge", "gt sync",
+		"gt undo", "Ghost Fix", "turbo ship",
+	}
+	for _, bc := range branchCommands {
+		if cmd == bc || len(cmd) > len(bc) && cmd[:len(bc)] == bc {
+			return true
+		}
+	}
+	return false
 }
 
 // --- Main ---

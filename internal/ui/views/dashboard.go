@@ -34,6 +34,7 @@ type DashboardViewData struct {
 	GtInitialized bool
 	OnMain        bool
 	SpeedCursor   int
+	StatusLoaded  bool // True once first status fetch completes
 
 	// Options
 	SkipHooks       bool

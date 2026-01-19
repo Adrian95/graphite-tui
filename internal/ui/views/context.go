@@ -14,6 +14,16 @@ const (
 	LayoutSingle                     // Single panel for narrow screens
 )
 
+// Cached layout calculations to avoid recalculating on every render
+var (
+	cachedWidth       int
+	cachedHeight      int
+	cachedLayoutMode  LayoutMode
+	cachedSidebarW    int
+	cachedMainW       int
+	cachedMainSplitW  int
+)
+
 // RenderContext provides rendering parameters
 type RenderContext struct {
 	Width  int
@@ -28,56 +38,67 @@ func NewRenderContext(width, height int) RenderContext {
 	if height == 0 {
 		height = 30
 	}
+	// Update cache if dimensions changed
+	if width != cachedWidth || height != cachedHeight {
+		cachedWidth = width
+		cachedHeight = height
+		// Recalculate layout mode
+		if width >= 140 {
+			cachedLayoutMode = LayoutGrid2x2
+		} else if width >= 80 {
+			cachedLayoutMode = LayoutStack1x4
+		} else {
+			cachedLayoutMode = LayoutSingle
+		}
+		// Recalculate sidebar width
+		switch cachedLayoutMode {
+		case LayoutGrid2x2:
+			if width >= 200 {
+				cachedSidebarW = 28
+			} else {
+				cachedSidebarW = 24
+			}
+		case LayoutStack1x4:
+			cachedSidebarW = 20
+		case LayoutSingle:
+			cachedSidebarW = 16
+		default:
+			cachedSidebarW = 20
+		}
+		// Recalculate main width
+		cachedMainW = width - cachedSidebarW - 4
+		if cachedMainW < 40 {
+			cachedMainW = 40
+		}
+		// Recalculate split width
+		cachedMainSplitW = (cachedMainW - 2) / 2
+	}
 	return RenderContext{Width: width, Height: height}
 }
 
 // SidebarWidth returns the standard sidebar width
 func (c RenderContext) SidebarWidth() int {
-	return 28
+	return cachedSidebarW
 }
 
 // MainWidth returns the main content width
 func (c RenderContext) MainWidth() int {
-	w := c.Width - c.GetSidebarWidth() - 4
-	if w < 40 {
-		return 40
-	}
-	return w
+	return cachedMainW
 }
 
 // MainSplitWidth returns half-width for panel layout
 func (c RenderContext) MainSplitWidth() int {
-	w := c.MainWidth()
-	gap := 2
-	return (w - gap) / 2
+	return cachedMainSplitW
 }
 
 // GetLayoutMode returns the appropriate layout mode based on screen width
 func (c RenderContext) GetLayoutMode() LayoutMode {
-	totalWidth := c.Width
-	if totalWidth >= 140 {
-		return LayoutGrid2x2
-	} else if totalWidth >= 80 {
-		return LayoutStack1x4
-	}
-	return LayoutSingle
+	return cachedLayoutMode
 }
 
 // GetSidebarWidth returns responsive sidebar width
 func (c RenderContext) GetSidebarWidth() int {
-	mode := c.GetLayoutMode()
-	switch mode {
-	case LayoutGrid2x2:
-		if c.Width >= 200 {
-			return 28
-		}
-		return 24
-	case LayoutStack1x4:
-		return 20
-	case LayoutSingle:
-		return 16
-	}
-	return 20
+	return cachedSidebarW
 }
 
 // --- Common Render Helpers ---

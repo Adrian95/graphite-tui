@@ -1043,30 +1043,6 @@ func (m model) handleVercelKeys(key string) (tea.Model, tea.Cmd) {
 				return m, vercel.OpenURL(status.PreviewURL)
 			}
 		}
-
-	case "y":
-		if len(m.vercelData.Statuses) > 0 {
-			status := m.vercelData.Statuses[m.vercelData.Cursor]
-			if status.PreviewURL != "" {
-				return m, vercel.CopyToClipboard(status.PreviewURL)
-			}
-		}
-
-	case "p":
-		if len(m.vercelData.Statuses) > 0 {
-			status := m.vercelData.Statuses[m.vercelData.Cursor]
-			if status.ProductionURL != "" {
-				return m, vercel.OpenURL(status.ProductionURL)
-			}
-		}
-
-	case "o":
-		if len(m.vercelData.Statuses) > 0 {
-			status := m.vercelData.Statuses[m.vercelData.Cursor]
-			if status.PreviewURL != "" {
-				return m, vercel.OpenURL(status.PreviewURL)
-			}
-		}
 	}
 
 	return m, nil

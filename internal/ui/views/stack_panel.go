@@ -17,7 +17,7 @@ func RenderStackPanel(width int, data StackViewData, focused bool) string {
 
 	if len(data.Items) == 0 {
 		content := ui.SubtitleStyle.Render("No stack")
-		return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
+		return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
 	}
 
 	var lines []string
@@ -40,5 +40,5 @@ func RenderStackPanel(width int, data StackViewData, focused bool) string {
 		lines = append(lines, fmt.Sprintf("%s%s%s", cursor, indent, name))
 	}
 
-	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + strings.Join(lines, "\n"))
+	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + strings.Join(lines, "\n"))
 }

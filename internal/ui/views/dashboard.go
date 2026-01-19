@@ -63,7 +63,7 @@ func RenderDashboard(ctx RenderContext, data DashboardViewData) string {
 	})
 
 	main := RenderDashboardMain(ctx, data)
-	footer := RenderFooter(ctx)
+	footer := "" // Actions moved to sidebar
 
 	return RenderLayout(sidebar, main, footer)
 }

@@ -43,6 +43,13 @@ var (
 			Foreground(lipgloss.Color(ColorSub)).
 			Bold(true)
 
+	// Bordered box styles for panels
+	BorderedBoxStyle = lipgloss.NewStyle().
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(lipgloss.Color(ColorAccent)).
+				PaddingLeft(1).
+				PaddingRight(1)
+
 	// Navigation / Menu
 	MenuItemStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ColorSub))

@@ -61,7 +61,7 @@ func renderSpeedPanel(width int, data DashboardViewData) string {
 
 	content := strings.Join(actions, "\n")
 
-	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
+	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
 }
 
 func renderFilesPanel(width int, data DashboardViewData) string {
@@ -89,11 +89,12 @@ func renderVercelPanel(width int, data DashboardViewData) string {
 
 	if !data.VercelSummary.Enabled {
 		content := ui.SubtitleStyle.Render("Not configured")
-		return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
+		return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + content)
+
 	}
 
 	table := RenderVercelTable(width, data.VercelSummary, data.VercelFocused)
-	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + table)
+	return ui.BorderedBoxStyle.Width(width - 2).Render(title + "\n" + table)
 }
 
 func renderPanelTitle(label string, focused bool) string {

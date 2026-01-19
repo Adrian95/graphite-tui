@@ -54,6 +54,10 @@ func RenderSidebar(ctx RenderContext, data SidebarData) string {
 			Render(data.FlashMessage)
 	}
 
+	// Quick actions (moved from footer)
+	actionsTitle := ui.SubtitleStyle.Bold(true).Render("ACTIONS")
+	actions := renderQuickActions()
+
 	return lipgloss.NewStyle().Width(width).PaddingRight(2).Render(
 		lipgloss.JoinVertical(lipgloss.Left,
 			appTitle,
@@ -62,8 +66,34 @@ func RenderSidebar(ctx RenderContext, data SidebarData) string {
 			hooksLine,
 			updateLine,
 			flashLine,
+			"",
+			actionsTitle,
+			"",
+			actions,
 		),
 	)
+}
+
+// renderQuickActions renders the quick action shortcuts
+func renderQuickActions() string {
+	shortcuts := []struct {
+		key   string
+		label string
+	}{
+		{"s", "New"},
+		{"p", "PR"},
+		{"y", "Sync"},
+		{"d", "Merge"},
+		{"g", "Stack"},
+		{"?", "Help"},
+	}
+
+	var parts []string
+	for _, s := range shortcuts {
+		parts = append(parts, ui.FooterKeyStyle.Render(s.key)+" "+ui.FooterLabelStyle.Render(s.label))
+	}
+
+	return strings.Join(parts, "\n")
 }
 
 // RenderFooter renders the bottom footer with shortcuts

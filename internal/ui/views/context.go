@@ -24,7 +24,7 @@ func NewRenderContext(width, height int) RenderContext {
 
 // SidebarWidth returns the standard sidebar width
 func (c RenderContext) SidebarWidth() int {
-	return 24
+	return 28
 }
 
 // MainWidth returns the main content width

@@ -145,6 +145,7 @@ func (m model) Init() tea.Cmd {
 		textinput.Blink,
 		m.spinner.Tick,
 		ui.RefreshNow(),
+		git.LoadStack(), // Load stack on startup
 		config.CheckForUpdates(),
 		ui.TickEvery(3 * time.Second),
 	}
@@ -423,9 +424,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global Dashboard keys (Quit, Focus)
+	// Global Dashboard keys (Quit, Focus, Update, Help)
 	if key == "q" && m.focusIndex != 1 { // Only quit if not filtering/in list
 		return m, tea.Quit
+	}
+
+	// Global update shortcut (except in file list where u = unstage)
+	if key == "u" && m.focusIndex != 1 {
+		m.stateID = state.Update
+		m.checkingUpdate = true
+		return m, config.CheckForUpdates()
+	}
+
+	// Global help shortcut
+	if key == "?" {
+		m.stateID = state.Help
+		return m, nil
 	}
 
 	if key == "tab" || key == "right" {
@@ -564,15 +578,6 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stateID = state.Menu
 		m.cursor = 0
 		return m, nil
-
-	case "?":
-		m.stateID = state.Help
-		return m, nil
-
-	case "u":
-		m.stateID = state.Update
-		m.checkingUpdate = true
-		return m, config.CheckForUpdates()
 
 	case "h":
 		m.skipHooks = !m.skipHooks

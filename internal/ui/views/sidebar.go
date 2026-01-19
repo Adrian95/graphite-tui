@@ -85,6 +85,7 @@ func renderQuickActions() string {
 		{"y", "Sync"},
 		{"d", "Merge"},
 		{"g", "Stack"},
+		{"u", "Update"},
 		{"?", "Help"},
 	}
 

@@ -231,7 +231,7 @@ func RenderHelp() string {
 		navSection,
 		"  g   Stack     Visual stack map",
 		"  x   Rescue    Ghost fix for merged branches",
-		"  Tab Expand    Show/hide full file list",
+		"  Tab/←/→ Focus Cycle panels",
 		"  h   Hooks     Toggle pre-commit hooks",
 		"  u   Update    Check for updates",
 		"",

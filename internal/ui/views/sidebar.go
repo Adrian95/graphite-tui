@@ -10,11 +10,9 @@ import (
 // SidebarData contains data needed to render the sidebar
 type SidebarData struct {
 	CurrentVersion  string
-	SpeedCursor     int
 	SkipHooks       bool
 	UpdateAvailable string
 	FlashMessage    string
-	SpeedFocused    bool
 }
 
 // RenderSidebar renders the left sidebar
@@ -28,9 +26,6 @@ func RenderSidebar(ctx RenderContext, data SidebarData) string {
 		Render("GRAPHITE TUI")
 
 	version := ui.SubtitleStyle.Render(data.CurrentVersion)
-
-	// Speed box
-	speedBox := renderSpeedBox(width, data.SpeedCursor, data.SpeedFocused)
 
 	// Hooks state
 	hooksState := "ON"
@@ -64,45 +59,10 @@ func RenderSidebar(ctx RenderContext, data SidebarData) string {
 			appTitle,
 			version,
 			"",
-			speedBox,
-			"",
 			hooksLine,
 			updateLine,
 			flashLine,
 		),
-	)
-}
-
-func renderSpeedBox(width int, cursor int, focused bool) string {
-	speedItems := []struct {
-		key   string
-		label string
-	}{
-		{"⏎", "Ship"},
-		{"f", "Iterate"},
-		{"R", "Reset"},
-		{"z", "Undo"},
-	}
-
-	var speedActions []string
-	for i, item := range speedItems {
-		var line string
-		if i == cursor {
-			line = ui.MenuSelectedStyle.Render("❯ "+item.key) + " " + ui.MenuSelectedStyle.Render(item.label)
-		} else {
-			line = ui.MenuItemStyle.Render("  "+item.key) + " " + ui.MenuItemStyle.Render(item.label)
-		}
-		speedActions = append(speedActions, line)
-	}
-
-	title := ui.BoxTitleStyle.Render("SPEED")
-	if focused {
-		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("SPEED")
-	}
-
-	speedContent := lipgloss.JoinVertical(lipgloss.Left, speedActions...)
-	return ui.BoxStyle.Width(width - 2).Render(
-		title + "\n" + speedContent,
 	)
 }
 

@@ -57,11 +57,9 @@ type DashboardViewData struct {
 func RenderDashboard(ctx RenderContext, data DashboardViewData) string {
 	sidebar := RenderSidebar(ctx, SidebarData{
 		CurrentVersion:  data.CurrentVersion,
-		SpeedCursor:     data.SpeedCursor,
 		SkipHooks:       data.SkipHooks,
 		UpdateAvailable: data.UpdateAvailable,
 		FlashMessage:    data.FlashMessage,
-		SpeedFocused:    !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused,
 	})
 
 	main := RenderDashboardMain(ctx, data)
@@ -187,45 +185,19 @@ func renderFilesBox(width int, files []git.ChangedFile, expanded bool, fileList 
 	return ui.BoxStyle.Width(width - 2).Render(filesContent)
 }
 
-func renderContextStrip(data DashboardViewData) string {
-	parts := []string{}
-
-	if data.Branch != "" {
-		branch := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render(data.Branch)
-		parts = append(parts, branch)
-	}
-
-	if data.LinesAdded > 0 || data.LinesRemoved > 0 {
-		added := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("+%d", data.LinesAdded))
-		removed := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("-%d", data.LinesRemoved))
-		parts = append(parts, fmt.Sprintf("%s/%s lines", added, removed))
-	}
-
-	if data.StagedCount > 0 {
-		staged := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("%d staged", data.StagedCount))
-		parts = append(parts, staged)
-	}
-
-	if data.VercelSummary.Enabled {
-		parts = append(parts, RenderVercelSummary(data.VercelSummary.Summary))
-	}
-
-	if len(parts) == 0 {
-		return ""
-	}
-
-	return ui.CardStyle.Render(strings.Join(parts, " • "))
-}
-
 func getContextualTip(data DashboardViewData) string {
 	if data.FileBoxFocused {
-		return "[Space] Stage/Unstage  [a] Stage All  [u] Unstage All"
+		return "[↑↓] Navigate  [Space] Stage/Unstage  [a] Stage All  [u] Unstage All"
 	}
 	if data.VercelFocused {
 		if !data.VercelSummary.Enabled {
 			return "Set VERCEL_TOKEN + VERCEL_PROJECT_ID (+ VERCEL_ORG_ID if org) in .env.local/.env (token: vercel.com/account/tokens, project: Vercel → Project → Settings)"
 		}
 		return "[↑↓] Navigate  [⏎] Open Preview  [p] Open Prod  [y] Copy Preview"
+	}
+
+	if data.StackFocused {
+		return "[↑↓] Navigate  [⏎] Checkout"
 	}
 
 	if !data.GtInitialized {

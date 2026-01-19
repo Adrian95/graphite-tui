@@ -37,40 +37,35 @@ func RenderDashboardPanels(ctx RenderContext, data DashboardViewData) string {
 }
 
 func renderSpeedPanel(width int, data DashboardViewData) string {
-	title := ui.BoxTitleStyle.Render("Speed")
-	if !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused {
-		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("Speed")
-	}
+	focused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
+	title := renderPanelTitle("Speed", focused)
 
 	actions := []string{}
 	items := []struct {
-		key   string
 		label string
 	}{
-		{"⏎", "Ship"},
-		{"f", "Iterate"},
-		{"R", "Reset"},
-		{"z", "Undo"},
+		{"Ship"},
+		{"Iterate"},
+		{"Reset"},
+		{"Undo"},
 	}
 	for i, item := range items {
+		marker := ui.MenuItemStyle.Render("□")
+		labelStyle := ui.MenuItemStyle
 		if i == data.SpeedCursor {
-			actions = append(actions, ui.MenuSelectedStyle.Render("❯ "+item.key)+" "+ui.MenuSelectedStyle.Render(item.label))
-		} else {
-			actions = append(actions, ui.MenuItemStyle.Render("  "+item.key)+" "+ui.MenuItemStyle.Render(item.label))
+			marker = ui.MenuSelectedStyle.Render("■")
+			labelStyle = ui.MenuSelectedStyle
 		}
+		actions = append(actions, marker+" "+labelStyle.Render(item.label))
 	}
 
-	context := renderPanelContext(data)
 	content := strings.Join(actions, "\n")
 
-	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content + "\n\n" + context)
+	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
 }
 
 func renderFilesPanel(width int, data DashboardViewData) string {
-	title := ui.BoxTitleStyle.Render("Changes")
-	if data.FileBoxFocused {
-		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("Changes")
-	}
+	title := renderPanelTitle("Changes", data.FileBoxFocused)
 
 	var content string
 	if len(data.ChangedFiles) == 0 {
@@ -90,10 +85,7 @@ func renderFilesPanel(width int, data DashboardViewData) string {
 }
 
 func renderVercelPanel(width int, data DashboardViewData) string {
-	title := ui.BoxTitleStyle.Render("Vercel")
-	if data.VercelFocused {
-		title = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("Vercel")
-	}
+	title := renderPanelTitle("Vercel", data.VercelFocused)
 
 	if !data.VercelSummary.Enabled {
 		content := ui.SubtitleStyle.Render("Not configured")
@@ -104,20 +96,11 @@ func renderVercelPanel(width int, data DashboardViewData) string {
 	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + table)
 }
 
-func renderPanelContext(data DashboardViewData) string {
-	parts := []string{}
-	if data.Branch != "" {
-		parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render(data.Branch))
+func renderPanelTitle(label string, focused bool) string {
+	if focused {
+		return lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render(label)
 	}
-	if data.LinesAdded > 0 || data.LinesRemoved > 0 {
-		added := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("+%d", data.LinesAdded))
-		removed := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorError)).Render(fmt.Sprintf("-%d", data.LinesRemoved))
-		parts = append(parts, fmt.Sprintf("%s/%s lines", added, removed))
-	}
-	if data.StagedCount > 0 {
-		parts = append(parts, lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render(fmt.Sprintf("%d staged", data.StagedCount)))
-	}
-	return ui.SubtitleStyle.Render(strings.Join(parts, " • "))
+	return ui.BoxTitleStyle.Render(label)
 }
 
 // RenderVercelTable renders the Vercel deployments table

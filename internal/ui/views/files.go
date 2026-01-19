@@ -31,17 +31,20 @@ func (i FileItem) Title() string {
 		icon = "?"
 	}
 
-	stagedMarker := "[ ]"
+	markerStyle := ui.MenuItemStyle
+	stagedMarker := "□"
 	if i.File.Staged {
-		stagedMarker = "[x]"
+		stagedMarker = "■"
+		markerStyle = ui.MenuSelectedStyle
 	}
 
 	// If untracked, it's effectively unstaged unless added
 	if i.File.Status == "??" {
-		stagedMarker = "[?]"
+		stagedMarker = "◻"
+		markerStyle = ui.MenuItemStyle
 	}
 
-	return fmt.Sprintf("%s %s %s", stagedMarker, icon, i.File.Path)
+	return fmt.Sprintf("%s %s %s", markerStyle.Render(stagedMarker), icon, i.File.Path)
 }
 
 func (i FileItem) Description() string {

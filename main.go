@@ -407,14 +407,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global Dashboard keys (Quit, Tab)
+	// Global Dashboard keys (Quit, Focus)
 	if key == "q" && m.focusIndex != 1 { // Only quit if not filtering/in list
 		return m, tea.Quit
 	}
 
-	if key == "tab" {
+	if key == "tab" || key == "right" {
 		m.focusIndex = (m.focusIndex + 1) % 4
 		// Adjust list styling based on focus
+		if m.focusIndex == 1 {
+			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
+		} else {
+			m.fileList.Styles.Title = ui.BoxTitleStyle
+		}
+		return m, nil
+	}
+
+	if key == "shift+tab" || key == "left" {
+		m.focusIndex = (m.focusIndex - 1 + 4) % 4
 		if m.focusIndex == 1 {
 			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
 		} else {

@@ -2,10 +2,11 @@ package git
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
-
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -115,6 +116,21 @@ type ReflogLoadedMsg []ReflogItem
 
 // StashLoadedMsg is sent when the stash is loaded
 type StashLoadedMsg []StashItem
+
+// MergedAncestorIssue represents a merged ancestor branch
+type MergedAncestorIssue struct {
+	Branch   string
+	PRNumber int
+	PRURL    string
+}
+
+// MergedAncestorCheckMsg is sent after checking for merged ancestors
+type MergedAncestorCheckMsg struct {
+	Issues        []MergedAncestorIssue
+	CurrentBranch string
+	TrunkBranch   string
+	Err           error
+}
 
 // --- Singleton Executor ---
 
@@ -445,6 +461,248 @@ func LoadStash() tea.Cmd {
 		}
 		return StashLoadedMsg(items)
 	}
+}
+
+// CheckMergedAncestors inspects ancestors for merged PRs missing from trunk
+func CheckMergedAncestors() tea.Cmd {
+	return func() tea.Msg {
+		trunk, err := getTrunkBranch()
+		if err != nil {
+			return MergedAncestorCheckMsg{Err: err}
+		}
+
+		currentBranch, err := getCurrentBranch()
+		if err != nil {
+			return MergedAncestorCheckMsg{Err: err, TrunkBranch: trunk}
+		}
+
+		ancestors, err := getAncestorBranches(currentBranch, trunk)
+		if err != nil {
+			return MergedAncestorCheckMsg{Err: err, CurrentBranch: currentBranch, TrunkBranch: trunk}
+		}
+
+		issues := []MergedAncestorIssue{}
+		for _, branch := range ancestors {
+			prInfo, ok := readPRInfo(branch)
+			if !ok || !prInfo.Merged {
+				continue
+			}
+			if prInfo.Number == 0 {
+				continue
+			}
+			contains, err := trunkContainsBranch(trunk, branch)
+			if err != nil {
+				return MergedAncestorCheckMsg{Err: err, CurrentBranch: currentBranch, TrunkBranch: trunk}
+			}
+			if !contains {
+				issues = append(issues, MergedAncestorIssue{
+					Branch:   branch,
+					PRNumber: prInfo.Number,
+					PRURL:    prInfo.URL,
+				})
+			}
+		}
+
+		return MergedAncestorCheckMsg{
+			Issues:        issues,
+			CurrentBranch: currentBranch,
+			TrunkBranch:   trunk,
+		}
+	}
+}
+
+// ExecuteResolveMergedAncestors resolves merged ancestor branches and rebases current branch
+func ExecuteResolveMergedAncestors(trunk, current string, mergedBranches []string, skipHooks bool) tea.Cmd {
+	return func() tea.Msg {
+		if trunk == "" {
+			return CmdFinishedMsg{Err: fmt.Errorf("trunk branch not found"), Command: "resolve merged ancestor"}
+		}
+		ctx := context.Background()
+		configs := []ExecutionConfig{}
+
+		currentIsMerged := false
+		for _, branch := range mergedBranches {
+			if branch == current {
+				currentIsMerged = true
+				break
+			}
+		}
+
+		if currentIsMerged {
+			configs = append(configs, GTCommand("checkout --trunk", false))
+			current = trunk
+		}
+
+		configs = append(configs, ExecutionConfig{
+			Command:      "gt sync",
+			AllowUserEnv: true,
+		})
+
+		for _, branch := range mergedBranches {
+			configs = append(configs, ExecutionConfig{
+				Command: "gt delete --force " + branch,
+			})
+		}
+
+		if current != trunk {
+			configs = append(configs, ExecutionConfig{
+				Command: "gt checkout " + current,
+			})
+			configs = append(configs, ExecutionConfig{
+				Command: "gt rebase " + trunk + " --no-interactive",
+			})
+		}
+
+		result := executor.ExecuteChain(ctx, configs)
+		if result.Err == nil && result.Output == "" {
+			result.Output = "Merged ancestor resolved."
+		}
+		result.Command = "resolve merged ancestor"
+		return result
+	}
+}
+
+// ExecuteTreatAsNew unlinks the PR so it can be resubmitted
+func ExecuteTreatAsNew(skipHooks bool) tea.Cmd {
+	return executor.ExecuteAsync(ExecutionConfig{
+		Command:   "gt unlink --no-interactive",
+		SkipHooks: skipHooks,
+	})
+}
+
+// --- Merged Ancestor Helpers ---
+
+type prInfoEntry struct {
+	PRNumber int    `json:"prNumber"`
+	State    string `json:"state"`
+	URL      string `json:"url"`
+	HeadRef  string `json:"headRefName"`
+	MergedAt string `json:"mergedAt"`
+}
+
+type prInfoFile struct {
+	PRInfos []prInfoEntry `json:"prInfos"`
+}
+
+type prInfoMatch struct {
+	Number int
+	URL    string
+	Merged bool
+}
+
+func getTrunkBranch() (string, error) {
+	out, err := exec.Command("gt", "trunk", "--no-interactive").Output()
+	if err == nil {
+		trunk := strings.TrimSpace(string(out))
+		if trunk != "" {
+			return trunk, nil
+		}
+	}
+
+	trunk, err := readTrunkFromConfig()
+	if err == nil && trunk != "" {
+		return trunk, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return "", fmt.Errorf("trunk branch not found")
+}
+
+func readTrunkFromConfig() (string, error) {
+	path := filepath.Join(".git", ".graphite_repo_config")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	var payload struct {
+		Trunk string `json:"trunk"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(payload.Trunk), nil
+}
+
+func getCurrentBranch() (string, error) {
+	out, err := exec.Command("git", "branch", "--show-current").Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func getAncestorBranches(current, trunk string) ([]string, error) {
+	out, err := exec.Command("gt", "log", "short", "--stack", "--classic", "--no-interactive").Output()
+	if err != nil {
+		return nil, err
+	}
+
+	branches := []string{}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for _, line := range lines {
+		name := strings.TrimSpace(strings.TrimPrefix(line, "*"))
+		name = strings.TrimSpace(strings.TrimLeft(name, "○●◉↱$"))
+		name = strings.TrimSpace(strings.TrimLeft(name, "•"))
+		if name == "" {
+			continue
+		}
+		name = strings.TrimSpace(strings.TrimPrefix(name, "$"))
+		if idx := strings.Index(name, "("); idx != -1 {
+			name = strings.TrimSpace(name[:idx])
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			continue
+		}
+		if name == trunk {
+			continue
+		}
+		branches = append(branches, name)
+		if name == current {
+			break
+		}
+	}
+
+	return branches, nil
+}
+
+func readPRInfo(branch string) (prInfoMatch, bool) {
+	path := filepath.Join(".git", ".graphite_pr_info")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return prInfoMatch{}, false
+	}
+
+	var payload prInfoFile
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return prInfoMatch{}, false
+	}
+
+	for _, info := range payload.PRInfos {
+		if info.HeadRef == branch {
+			return prInfoMatch{
+				Number: info.PRNumber,
+				URL:    info.URL,
+				Merged: strings.EqualFold(info.State, "MERGED") || info.MergedAt != "",
+			}, true
+		}
+	}
+	return prInfoMatch{}, false
+}
+
+func trunkContainsBranch(trunk, branch string) (bool, error) {
+	cmd := exec.Command("git", "merge-base", "--is-ancestor", branch, trunk)
+	if err := cmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			if exitErr.ExitCode() == 1 {
+				return false, nil
+			}
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 // ExecuteStashCommand performs a stash action

@@ -65,6 +65,100 @@ func RenderConfirm(data ConfirmViewData) string {
 	return lipgloss.JoinVertical(lipgloss.Left, content...)
 }
 
+// --- Merged Ancestor Dialog ---
+
+// MergedAncestorViewData contains merged ancestor dialog data
+// Option: 0 = Resolve, 1 = Abort, 2 = Treat as New
+type MergedAncestorViewData struct {
+	Issues        []git.MergedAncestorIssue
+	Selected      int
+	CurrentBranch string
+	TrunkBranch   string
+}
+
+// RenderMergedAncestor renders the merged ancestor resolution dialog
+func RenderMergedAncestor(data MergedAncestorViewData) string {
+	warningStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorWarning)).Bold(true)
+	title := warningStyle.Render("Merged Parent Detected")
+
+	issueLine := ""
+	if len(data.Issues) > 0 {
+		issue := data.Issues[0]
+		prLabel := "PR"
+		if issue.PRNumber > 0 {
+			prLabel = fmt.Sprintf("PR #%d", issue.PRNumber)
+		}
+		issueLine = fmt.Sprintf("%s merged for %s", prLabel, issue.Branch)
+		if issue.PRURL != "" {
+			issueLine += fmt.Sprintf(" (%s)", issue.PRURL)
+		}
+	}
+
+	additional := ""
+	if len(data.Issues) > 1 {
+		additional = fmt.Sprintf("+%d more merged parent(s)", len(data.Issues)-1)
+	}
+
+	contextLine := fmt.Sprintf("Local %s does not include merged changes.", data.TrunkBranch)
+
+	optionStyle := ui.MenuItemStyle
+	selectedStyle := ui.MenuSelectedStyle
+	options := []struct {
+		Label       string
+		Desc        string
+		Recommended bool
+	}{
+		{
+			Label:       "Sync trunk, delete merged branch, restack",
+			Desc:        "Auto-clean local graph and continue.",
+			Recommended: true,
+		},
+		{
+			Label: "Abort",
+			Desc:  "Exit to shell to handle manually.",
+		},
+		{
+			Label: "Treat as new",
+			Desc:  "Unlink PR and create a new one.",
+		},
+	}
+
+	var optionLines []string
+	for idx, option := range options {
+		label := option.Label
+		if option.Recommended {
+			label += " (Recommended)"
+		}
+		prefix := "  "
+		style := optionStyle
+		if data.Selected == idx {
+			prefix = "▸ "
+			style = selectedStyle
+		}
+		line := style.Render(prefix + label)
+		desc := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSub)).Render("    " + option.Desc)
+		optionLines = append(optionLines, lipgloss.JoinVertical(lipgloss.Left, line, desc))
+	}
+
+	content := []string{
+		title,
+		"",
+		ui.SubtitleStyle.Render(issueLine),
+	}
+	if additional != "" {
+		content = append(content, ui.SubtitleStyle.Render(additional))
+	}
+	content = append(content,
+		ui.SubtitleStyle.Render(contextLine),
+		"",
+		ui.CardStyle.Render(strings.Join(optionLines, "\n\n")),
+		"",
+		ui.SubtitleStyle.Render("[↑↓] Select  [Enter] Confirm  [Esc] Cancel"),
+	)
+
+	return lipgloss.JoinVertical(lipgloss.Left, content...)
+}
+
 // --- Input Dialog ---
 
 // InputViewData contains input dialog data

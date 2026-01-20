@@ -22,6 +22,16 @@ import (
 
 // --- Model ---
 
+type pendingAction int
+
+const (
+	pendingNone pendingAction = iota
+	pendingSubmit
+	pendingSync
+	pendingIterate
+	pendingTurboShip
+)
+
 type model struct {
 	// State management
 	stateID   state.StateID
@@ -90,6 +100,10 @@ type model struct {
 	// Post-commit
 	justCommitted bool
 	lastCommitMsg string
+
+	// Merged ancestor resolution
+	mergedAncestorData views.MergedAncestorViewData
+	pendingAction      pendingAction
 }
 
 func initialModel() model {
@@ -132,6 +146,9 @@ func initialModel() model {
 		vercelData:   vercelData,
 		vercelClient: vclient,
 		skipHooks:    false,
+		mergedAncestorData: views.MergedAncestorViewData{
+			Selected: 0,
+		},
 		dashboardData: views.DashboardViewData{
 			CurrentVersion: config.GetCurrentVersion(),
 			VercelSummary:  vercelData,
@@ -208,6 +225,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleUpdateKeys(key)
 		case state.PostCommit:
 			return m.handlePostCommitKeys(key)
+		case state.MergedAncestor:
+			return m.handleMergedAncestorKeys(key)
 		case state.Output:
 			if key == "esc" || key == "enter" || key == "q" {
 				m.stateID = state.Dashboard
@@ -279,6 +298,33 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 
+	case git.MergedAncestorCheckMsg:
+		if msg.Err != nil {
+			m.pendingAction = pendingNone
+			m.stateID = state.Output
+			m.outputData = views.OutputViewData{
+				IsRunning: false,
+				Command:   "check merged ancestors",
+				Output:    msg.Err.Error(),
+				Error:     msg.Err,
+			}
+			m.viewport.SetContent(m.outputData.Output)
+			return m, nil
+		}
+
+		if len(msg.Issues) == 0 {
+			return m, m.runPendingAction()
+		}
+
+		m.mergedAncestorData = views.MergedAncestorViewData{
+			Issues:        msg.Issues,
+			Selected:      0,
+			CurrentBranch: msg.CurrentBranch,
+			TrunkBranch:   msg.TrunkBranch,
+		}
+		m.stateID = state.MergedAncestor
+		return m, nil
+
 	case git.CmdFinishedMsg:
 		m.outputData.Error = msg.Err
 		m.outputData.Command = msg.Command
@@ -293,8 +339,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.stateID = state.Output
 			m.justCommitted = false
+			m.pendingAction = pendingNone
 		} else {
 			m.outputData.Output = msg.Output
+			if msg.Command == "unlink PR" && m.pendingAction == pendingSubmit {
+				m.pendingAction = pendingNone
+				m.stateID = state.Running
+				m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
+				return m, git.ExecuteSubmit(m.skipHooks)
+			}
+
 			if m.justCommitted {
 				m.stateID = state.PostCommit
 				m.outputData.IsPostCommit = true
@@ -543,19 +597,13 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "p":
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
-		return m, git.ExecuteSubmit(m.skipHooks)
+		return m.startMergedAncestorCheck(pendingSubmit)
 
 	case "f":
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
-		return m, git.ExecuteIterate(m.skipHooks)
+		return m.startMergedAncestorCheck(pendingIterate)
 
 	case "y":
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt sync"}
-		return m, git.ExecuteSync(m.skipHooks)
+		return m.startMergedAncestorCheck(pendingSync)
 
 	case "d":
 		m.confirmData = views.ConfirmViewData{Action: "merge"}
@@ -682,6 +730,14 @@ func (m model) handleMenuKeys(key string) (tea.Model, tea.Cmd) {
 			m.textInput.Placeholder = "New branch name..."
 			m.confirmData = views.ConfirmViewData{Action: "ghost"}
 			return m, textinput.Blink
+		}
+
+		if selected.Title == "Share" {
+			return m.startMergedAncestorCheck(pendingSubmit)
+		}
+
+		if selected.Title == "Sync" {
+			return m.startMergedAncestorCheck(pendingSync)
 		}
 
 		if selected.Command != "" {
@@ -880,17 +936,15 @@ func (m model) handleQuickCommitKeys(key string, msg tea.Msg) (tea.Model, tea.Cm
 		}
 
 		m.lastCommitMsg = commitMsg
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true}
+		m.quickCommitData.InputValue = commitMsg
 
 		if m.quickCommitData.IsAmend {
-			m.outputData.Command = "iterate"
-			return m, git.ExecuteIterateWithMsg(commitMsg, m.skipHooks)
+			m.justCommitted = false
+			return m.startMergedAncestorCheck(pendingIterate)
 		}
 
 		m.justCommitted = true
-		m.outputData.Command = "turbo ship"
-		return m, git.ExecuteTurboShipWithMsg(commitMsg, m.skipHooks)
+		return m.startMergedAncestorCheck(pendingTurboShip)
 	}
 
 	var cmd tea.Cmd
@@ -1134,13 +1188,56 @@ func (m model) handleUpdateKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleMergedAncestorKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "q":
+		m.pendingAction = pendingNone
+		m.stateID = state.Dashboard
+		return m, ui.RefreshNow()
+
+	case "up", "k":
+		if m.mergedAncestorData.Selected > 0 {
+			m.mergedAncestorData.Selected--
+		}
+		return m, nil
+
+	case "down", "j":
+		if m.mergedAncestorData.Selected < 2 {
+			m.mergedAncestorData.Selected++
+		}
+		return m, nil
+
+	case "enter":
+		selection := m.mergedAncestorData.Selected
+		switch selection {
+		case 0:
+			branches := []string{}
+			for _, issue := range m.mergedAncestorData.Issues {
+				branches = append(branches, issue.Branch)
+			}
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "resolve merged ancestor"}
+			return m, git.ExecuteResolveMergedAncestors(m.mergedAncestorData.TrunkBranch, m.mergedAncestorData.CurrentBranch, branches, m.skipHooks)
+		case 1:
+			m.pendingAction = pendingNone
+			m.stateID = state.Dashboard
+			return m, ui.RefreshNow()
+		case 2:
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "unlink PR"}
+			m.pendingAction = pendingSubmit
+			return m, git.ExecuteTreatAsNew(m.skipHooks)
+		}
+	}
+
+	return m, nil
+}
+
 func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "y", "enter":
 		m.justCommitted = false
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
-		return m, git.ExecuteSubmit(m.skipHooks)
+		return m.startMergedAncestorCheck(pendingSubmit)
 
 	case "n", "esc":
 		m.justCommitted = false
@@ -1181,9 +1278,7 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		} else if m.dashboardData.Ahead > 0 {
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
-			return m, git.ExecuteSubmit(m.skipHooks)
+			return m.startMergedAncestorCheck(pendingSubmit)
 		}
 		m.setFlash("Nothing to ship - no changes or unpushed commits")
 		return m, nil
@@ -1278,12 +1373,8 @@ func (m model) View() string {
 	case state.Vercel:
 		return views.RenderCentered(views.RenderVercel(m.vercelData, ctx.MainWidth()))
 
-	case state.Running, state.Output, state.PostCommit:
-		m.outputData.SpinnerView = m.spinner.View()
-		return views.RenderCentered(views.RenderOutput(m.outputData))
-
-	case state.Help:
-		return views.RenderCentered(views.RenderHelp())
+	case state.MergedAncestor:
+		return views.RenderCentered(views.RenderMergedAncestor(m.mergedAncestorData))
 
 	case state.Update:
 		data := views.UpdateViewData{
@@ -1295,8 +1386,67 @@ func (m model) View() string {
 		}
 		return views.RenderCentered(views.RenderUpdate(data))
 
+	case state.Running, state.Output, state.PostCommit:
+		m.outputData.SpinnerView = m.spinner.View()
+		return views.RenderCentered(views.RenderOutput(m.outputData))
+
+	case state.Help:
+		return views.RenderCentered(views.RenderHelp())
+
 	default:
 		return views.RenderDashboard(ctx, m.dashboardData)
+	}
+}
+
+func (m *model) startMergedAncestorCheck(action pendingAction) (tea.Model, tea.Cmd) {
+	m.pendingAction = action
+	m.stateID = state.Running
+	m.outputData = views.OutputViewData{IsRunning: true, Command: "Checking stack"}
+	return m, git.CheckMergedAncestors()
+}
+
+func (m *model) runPendingAction() tea.Cmd {
+	defer func() { m.pendingAction = pendingNone }()
+	switch m.pendingAction {
+	case pendingSubmit:
+		m.stateID = state.Running
+		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
+		return git.ExecuteSubmit(m.skipHooks)
+	case pendingSync:
+		m.stateID = state.Running
+		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt sync"}
+		return git.ExecuteSync(m.skipHooks)
+	case pendingIterate:
+		if m.quickCommitData.InputValue != "" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
+			return git.ExecuteIterateWithMsg(m.quickCommitData.InputValue, m.skipHooks)
+		}
+		if m.lastCommitMsg != "" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
+			return git.ExecuteIterateWithMsg(m.lastCommitMsg, m.skipHooks)
+		}
+		m.stateID = state.Running
+		m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
+		return git.ExecuteIterate(m.skipHooks)
+	case pendingTurboShip:
+		if m.quickCommitData.InputValue != "" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "turbo ship"}
+			return git.ExecuteTurboShipWithMsg(m.quickCommitData.InputValue, m.skipHooks)
+		}
+		if m.lastCommitMsg != "" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "turbo ship"}
+			return git.ExecuteTurboShipWithMsg(m.lastCommitMsg, m.skipHooks)
+		}
+		m.stateID = state.Running
+		m.outputData = views.OutputViewData{IsRunning: true, Command: "turbo ship"}
+		return git.ExecuteTurboShip(m.skipHooks)
+	default:
+		m.stateID = state.Dashboard
+		return ui.RefreshNow()
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"github.com/Adrian95/graphite-tui/v2/internal/config"
@@ -104,6 +105,7 @@ type model struct {
 	// Merged ancestor resolution
 	mergedAncestorData views.MergedAncestorViewData
 	pendingAction      pendingAction
+	pendingCommitMsg   string
 }
 
 func initialModel() model {
@@ -301,6 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case git.MergedAncestorCheckMsg:
 		if msg.Err != nil {
 			m.pendingAction = pendingNone
+			m.pendingCommitMsg = ""
 			m.stateID = state.Output
 			m.outputData = views.OutputViewData{
 				IsRunning: false,
@@ -340,10 +343,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.stateID = state.Output
 			m.justCommitted = false
 			m.pendingAction = pendingNone
+			m.pendingCommitMsg = ""
 		} else {
 			m.outputData.Output = msg.Output
 			if msg.Command == "unlink PR" && m.pendingAction == pendingSubmit {
 				m.pendingAction = pendingNone
+				m.pendingCommitMsg = ""
 				m.stateID = state.Running
 				m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
 				return m, git.ExecuteSubmit(m.skipHooks)
@@ -886,6 +891,7 @@ func (m model) handleWizardPreviewKeys(key string) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		m.justCommitted = true
+		m.pendingCommitMsg = ""
 		m.stateID = state.Running
 		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt create"}
 		return m, git.ExecuteCommit(m.lastCommitMsg, m.skipHooks)
@@ -925,11 +931,12 @@ func (m model) handleConfirmKeys(key string) (tea.Model, tea.Cmd) {
 func (m model) handleQuickCommitKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
+		m.pendingCommitMsg = ""
 		m.stateID = state.Dashboard
 		return m, nil
 
 	case "enter":
-		commitMsg := m.textInput.Value()
+		commitMsg := strings.TrimSpace(m.textInput.Value())
 		if commitMsg == "" {
 			m.quickCommitData.ErrorMsg = "Message required"
 			return m, nil
@@ -937,6 +944,7 @@ func (m model) handleQuickCommitKeys(key string, msg tea.Msg) (tea.Model, tea.Cm
 
 		m.lastCommitMsg = commitMsg
 		m.quickCommitData.InputValue = commitMsg
+		m.pendingCommitMsg = commitMsg
 
 		if m.quickCommitData.IsAmend {
 			m.justCommitted = false
@@ -1192,6 +1200,7 @@ func (m model) handleMergedAncestorKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc", "q":
 		m.pendingAction = pendingNone
+		m.pendingCommitMsg = ""
 		m.stateID = state.Dashboard
 		return m, ui.RefreshNow()
 
@@ -1215,11 +1224,13 @@ func (m model) handleMergedAncestorKeys(key string) (tea.Model, tea.Cmd) {
 			for _, issue := range m.mergedAncestorData.Issues {
 				branches = append(branches, issue.Branch)
 			}
+			m.pendingCommitMsg = ""
 			m.stateID = state.Running
 			m.outputData = views.OutputViewData{IsRunning: true, Command: "resolve merged ancestor"}
 			return m, git.ExecuteResolveMergedAncestors(m.mergedAncestorData.TrunkBranch, m.mergedAncestorData.CurrentBranch, branches, m.skipHooks)
 		case 1:
 			m.pendingAction = pendingNone
+			m.pendingCommitMsg = ""
 			m.stateID = state.Dashboard
 			return m, ui.RefreshNow()
 		case 2:
@@ -1237,6 +1248,7 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "y", "enter":
 		m.justCommitted = false
+		m.pendingCommitMsg = ""
 		return m.startMergedAncestorCheck(pendingSubmit)
 
 	case "n", "esc":
@@ -1400,13 +1412,19 @@ func (m model) View() string {
 
 func (m *model) startMergedAncestorCheck(action pendingAction) (tea.Model, tea.Cmd) {
 	m.pendingAction = action
+	if action != pendingTurboShip && action != pendingIterate {
+		m.pendingCommitMsg = ""
+	}
 	m.stateID = state.Running
 	m.outputData = views.OutputViewData{IsRunning: true, Command: "Checking stack"}
 	return m, git.CheckMergedAncestors()
 }
 
 func (m *model) runPendingAction() tea.Cmd {
-	defer func() { m.pendingAction = pendingNone }()
+	defer func() {
+		m.pendingAction = pendingNone
+		m.pendingCommitMsg = ""
+	}()
 	switch m.pendingAction {
 	case pendingSubmit:
 		m.stateID = state.Running
@@ -1417,6 +1435,11 @@ func (m *model) runPendingAction() tea.Cmd {
 		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt sync"}
 		return git.ExecuteSync(m.skipHooks)
 	case pendingIterate:
+		if strings.TrimSpace(m.pendingCommitMsg) != "" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
+			return git.ExecuteIterateWithMsg(m.pendingCommitMsg, m.skipHooks)
+		}
 		if m.quickCommitData.InputValue != "" {
 			m.stateID = state.Running
 			m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
@@ -1431,6 +1454,11 @@ func (m *model) runPendingAction() tea.Cmd {
 		m.outputData = views.OutputViewData{IsRunning: true, Command: "iterate"}
 		return git.ExecuteIterate(m.skipHooks)
 	case pendingTurboShip:
+		if strings.TrimSpace(m.pendingCommitMsg) != "" {
+			m.stateID = state.Running
+			m.outputData = views.OutputViewData{IsRunning: true, Command: "turbo ship"}
+			return git.ExecuteTurboShipWithMsg(m.pendingCommitMsg, m.skipHooks)
+		}
 		if m.quickCommitData.InputValue != "" {
 			m.stateID = state.Running
 			m.outputData = views.OutputViewData{IsRunning: true, Command: "turbo ship"}

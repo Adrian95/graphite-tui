@@ -846,6 +846,10 @@ func ExecuteTurboShip(skipHooks bool) tea.Cmd {
 // ExecuteTurboShipWithMsg creates a commit with custom message and immediately submits
 func ExecuteTurboShipWithMsg(commitMsg string, skipHooks bool) tea.Cmd {
 	return func() tea.Msg {
+		commitMsg = strings.TrimSpace(commitMsg)
+		if commitMsg == "" {
+			commitMsg = getDefaultCommitMessage()
+		}
 		ctx := context.Background()
 
 		// Check for staged files

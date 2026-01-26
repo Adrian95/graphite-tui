@@ -32,6 +32,7 @@ const (
 	Stash
 	Vercel
 	MergedAncestor
+	CoachExplainer
 )
 
 // String returns the state name for debugging
@@ -41,6 +42,7 @@ func (s StateID) String() string {
 		"WizardType", "WizardScope", "WizardSummary", "WizardPreview",
 		"Stack", "Help", "Update", "Confirm", "Startup", "PostCommit",
 		"QuickCommit", "CommitChoice", "Reflog", "Stash", "Vercel", "MergedAncestor",
+		"CoachExplainer",
 	}
 	if int(s) < len(names) {
 		return names[s]
@@ -154,10 +156,10 @@ var ValidTransitions = map[StateID][]StateID{
 		Dashboard, Running, Confirm,
 	},
 	Running: {
-		Output, PostCommit, Dashboard, MergedAncestor,
+		Output, PostCommit, Dashboard, MergedAncestor, CoachExplainer,
 	},
 	Output: {
-		Dashboard,
+		Dashboard, CoachExplainer,
 	},
 	WizardType: {
 		Dashboard, WizardScope,
@@ -206,6 +208,9 @@ var ValidTransitions = map[StateID][]StateID{
 	},
 	MergedAncestor: {
 		Dashboard, Running,
+	},
+	CoachExplainer: {
+		Dashboard,
 	},
 }
 

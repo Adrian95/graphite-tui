@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Adrian95/graphite-tui/v2/internal/coach"
 	"github.com/Adrian95/graphite-tui/v2/internal/config"
 	"github.com/Adrian95/graphite-tui/v2/internal/git"
 	"github.com/Adrian95/graphite-tui/v2/internal/state"
@@ -106,6 +107,10 @@ type model struct {
 	mergedAncestorData views.MergedAncestorViewData
 	pendingAction      pendingAction
 	pendingCommitMsg   string
+
+	// Coach state
+	coachState     coach.CoachState
+	coachExplainer coach.ExplainerData
 }
 
 func initialModel() model {
@@ -137,6 +142,9 @@ func initialModel() model {
 		vclient = vercel.NewClient(vcfg)
 	}
 
+	// Load coach state from disk
+	coachState := coach.LoadState()
+
 	return model{
 		stateID:      state.Dashboard,
 		items:        git.GetMenuItems(),
@@ -156,6 +164,7 @@ func initialModel() model {
 			VercelSummary:  vercelData,
 			StackData:      views.StackViewData{},
 		},
+		coachState: coachState,
 	}
 }
 
@@ -229,6 +238,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handlePostCommitKeys(key)
 		case state.MergedAncestor:
 			return m.handleMergedAncestorKeys(key)
+		case state.CoachExplainer:
+			return m.handleCoachExplainerKeys(key)
 		case state.Output:
 			if key == "esc" || key == "enter" || key == "q" {
 				m.stateID = state.Dashboard
@@ -352,6 +363,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stateID = state.Running
 				m.outputData = views.OutputViewData{IsRunning: true, Command: "gt submit"}
 				return m, git.ExecuteSubmit(m.skipHooks)
+			}
+
+			// Check if coach should explain this action
+			if m.coachState.Enabled {
+				// Get fresh status for coaching context
+				localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
+				stackStatus := git.CheckStackStatus().(git.StackStatusMsg)
+
+				// Check if we should show coaching
+				if explainer := coach.CheckTriggers(&m.coachState, msg.Command, localStatus, stackStatus); explainer != nil {
+					m.coachExplainer = *explainer
+					m.stateID = state.CoachExplainer
+					m.outputData.IsRunning = false
+					return m, nil
+				}
 			}
 
 			if m.justCommitted {
@@ -646,7 +672,9 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, ui.RefreshNow()
 
 	case "R":
-		if len(m.dashboardData.ChangedFiles) > 0 {
+		// Check if there are actually any changes (bypass cache)
+		localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
+		if len(localStatus.ChangedFiles) > 0 || localStatus.StagedCount > 0 {
 			m.confirmData = views.ConfirmViewData{Action: "reset"}
 			m.stateID = state.Confirm
 			return m, nil
@@ -665,6 +693,17 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "v":
 		m.stateID = state.Vercel
 		return m, vercel.FetchStatus(m.vercelClient, m.collectVercelBranches())
+
+	case "c":
+		// Toggle coach mode
+		m.coachState.Enabled = !m.coachState.Enabled
+		coach.SaveState(m.coachState)
+		if m.coachState.Enabled {
+			m.setFlash("🎓 Coach mode enabled! I'll explain as you work.")
+		} else {
+			m.setFlash("Coach mode disabled. Press [c] to re-enable")
+		}
+		return m, nil
 	}
 
 	return m, nil
@@ -1266,17 +1305,57 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) handleCoachExplainerKeys(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "enter", "esc":
+		// Mark lesson as learned
+		if lesson, ok := m.coachState.Lessons[m.coachExplainer.LessonID]; ok {
+			lesson.Learned = true
+			lesson.TimesShown++
+			lesson.LastShown = time.Now()
+		}
+		coach.SaveState(m.coachState)
+		m.stateID = state.Dashboard
+		return m, ui.RefreshNow()
+
+	case "d":
+		// Don't show this specific lesson again
+		if m.coachExplainer.CanSkip {
+			if lesson, ok := m.coachState.Lessons[m.coachExplainer.LessonID]; ok {
+				lesson.Learned = true
+			}
+			coach.SaveState(m.coachState)
+			m.stateID = state.Dashboard
+			return m, ui.RefreshNow()
+		}
+
+	case "c":
+		// Disable coach entirely
+		m.coachState.Enabled = false
+		coach.SaveState(m.coachState)
+		m.setFlash("Coach mode disabled. Press [c] to re-enable")
+		m.stateID = state.Dashboard
+		return m, ui.RefreshNow()
+	}
+
+	return m, nil
+}
+
 func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
+	// Get fresh status to avoid cache issues
+	localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
+	hasChanges := len(localStatus.ChangedFiles) > 0
+
 	switch m.dashboardData.SpeedCursor {
 	case 0: // Ship
-		if len(m.dashboardData.ChangedFiles) > 0 {
+		if hasChanges {
 			if m.dashboardData.OnMain {
 				// On main: go straight to QuickCommit (create new branch)
 				m.stateID = state.QuickCommit
 				m.textInput.Reset()
 				m.textInput.Placeholder = "feat: add new feature"
 				m.quickCommitData = views.QuickCommitViewData{
-					FileCount: len(m.dashboardData.ChangedFiles),
+					FileCount: len(localStatus.ChangedFiles),
 					IsAmend:   false,
 				}
 				return m, textinput.Blink
@@ -1285,7 +1364,7 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 			m.stateID = state.CommitChoice
 			m.commitChoiceData = views.CommitChoiceViewData{
 				Branch:    m.dashboardData.Branch,
-				FileCount: len(m.dashboardData.ChangedFiles),
+				FileCount: len(localStatus.ChangedFiles),
 				Selected:  0, // Default to Amend
 			}
 			return m, nil
@@ -1296,13 +1375,13 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case 1: // Iterate
-		if len(m.dashboardData.ChangedFiles) > 0 {
+		if hasChanges {
 			// Show quick commit wizard in amend mode
 			m.stateID = state.QuickCommit
 			m.textInput.Reset()
 			m.textInput.Placeholder = "fix: update implementation"
 			m.quickCommitData = views.QuickCommitViewData{
-				FileCount: len(m.dashboardData.ChangedFiles),
+				FileCount: len(localStatus.ChangedFiles),
 				IsAmend:   true,
 			}
 			return m, textinput.Blink
@@ -1311,7 +1390,7 @@ func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case 2: // Reset
-		if len(m.dashboardData.ChangedFiles) > 0 {
+		if hasChanges {
 			m.confirmData = views.ConfirmViewData{Action: "reset"}
 			m.stateID = state.Confirm
 			return m, nil
@@ -1387,6 +1466,9 @@ func (m model) View() string {
 
 	case state.MergedAncestor:
 		return views.RenderCentered(views.RenderMergedAncestor(m.mergedAncestorData))
+
+	case state.CoachExplainer:
+		return views.RenderCentered(views.RenderExplainer(m.coachExplainer))
 
 	case state.Update:
 		data := views.UpdateViewData{

@@ -303,12 +303,17 @@ func RenderStack(data StackViewData) string {
 
 // RenderHelp renders the help view
 func RenderHelp() string {
+	coachSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("COACH")
 	speedSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("SPEED (↑↓ to select, ⏎ to run)")
 	workflowSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("WORKFLOW")
 	navSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("NAVIGATION")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		ui.TitleStyle.Render("Help"),
+		"",
+		coachSection,
+		"  c   Toggle    Interactive learning mode",
+		"              Coach shows explanations after you take actions",
 		"",
 		speedSection,
 		"  Ship     Smart: creates OR amends based on context",

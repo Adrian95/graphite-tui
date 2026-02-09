@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Adrian95/graphite-tui/v2/internal/coach"
 	"github.com/Adrian95/graphite-tui/v2/internal/config"
 	"github.com/Adrian95/graphite-tui/v2/internal/git"
 	"github.com/Adrian95/graphite-tui/v2/internal/state"
@@ -46,7 +45,7 @@ type model struct {
 	fileList  list.Model
 
 	// Focus management
-	focusIndex int // 0: Speed Box, 1: File List, 2: Vercel Panel, 3: Stack Panel
+	focusIndex int // 0: Files, 1: Vercel, 2: Stack
 
 	// Dimensions
 	width  int
@@ -55,21 +54,8 @@ type model struct {
 	// Dashboard data
 	dashboardData views.DashboardViewData
 
-	// Menu state
-	items  []git.MenuItem
-	cursor int
-
-	// Wizard state
-	wizardData views.WizardViewData
-
 	// Stack state
 	stackData views.StackViewData
-
-	// Reflog state
-	reflogData views.ReflogViewData
-
-	// Stash state
-	stashData views.StashViewData
 
 	// Vercel state
 	vercelData   views.VercelViewData
@@ -107,10 +93,6 @@ type model struct {
 	mergedAncestorData views.MergedAncestorViewData
 	pendingAction      pendingAction
 	pendingCommitMsg   string
-
-	// Coach state
-	coachState     coach.CoachState
-	coachExplainer coach.ExplainerData
 }
 
 func initialModel() model {
@@ -142,20 +124,15 @@ func initialModel() model {
 		vclient = vercel.NewClient(vcfg)
 	}
 
-	// Load coach state from disk
-	coachState := coach.LoadState()
-
 	return model{
-		stateID:      state.Dashboard,
-		items:        git.GetMenuItems(),
-		wizardData:   views.WizardViewData{CommitTypes: git.GetCommitTypes()},
-		textInput:    ti,
-		spinner:      s,
-		viewport:     vp,
-		fileList:     fl,
-		vercelData:   vercelData,
+		stateID:    state.Dashboard,
+		textInput:  ti,
+		spinner:    s,
+		viewport:   vp,
+		fileList:   fl,
+		vercelData: vercelData,
 		vercelClient: vclient,
-		skipHooks:    false,
+		skipHooks:  false,
 		mergedAncestorData: views.MergedAncestorViewData{
 			Selected: 0,
 		},
@@ -164,7 +141,6 @@ func initialModel() model {
 			VercelSummary:  vercelData,
 			StackData:      views.StackViewData{},
 		},
-		coachState: coachState,
 	}
 }
 
@@ -173,14 +149,14 @@ func (m model) Init() tea.Cmd {
 		textinput.Blink,
 		m.spinner.Tick,
 		ui.RefreshNow(),
-		git.LoadStack(), // Load stack on startup
+		git.LoadStack(),
 		config.CheckForUpdates(),
 		ui.TickEvery(3 * time.Second),
 	}
 
 	if m.vercelClient != nil {
 		cmds = append(cmds, vercel.FetchStatus(m.vercelClient, nil))
-		cmds = append(cmds, ui.VercelTickEvery(15*time.Second))
+		cmds = append(cmds, ui.VercelTickEvery(30*time.Second))
 	}
 
 	return tea.Batch(cmds...)
@@ -204,18 +180,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch m.stateID {
 		case state.Dashboard:
 			return m.handleDashboardKeys(msg)
-		case state.Menu:
-			return m.handleMenuKeys(key)
-		case state.Input:
-			return m.handleInputKeys(key, msg)
-		case state.WizardType:
-			return m.handleWizardTypeKeys(key)
-		case state.WizardScope:
-			return m.handleWizardScopeKeys(key, msg)
-		case state.WizardSummary:
-			return m.handleWizardSummaryKeys(key, msg)
-		case state.WizardPreview:
-			return m.handleWizardPreviewKeys(key)
 		case state.Confirm:
 			return m.handleConfirmKeys(key)
 		case state.QuickCommit:
@@ -224,10 +188,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handleCommitChoiceKeys(key)
 		case state.Stack:
 			return m.handleStackKeys(key)
-		case state.Reflog:
-			return m.handleReflogKeys(key)
-		case state.Stash:
-			return m.handleStashKeys(key)
 		case state.Help:
 			if key == "esc" || key == "?" || key == "q" {
 				m.stateID = state.Dashboard
@@ -238,8 +198,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.handlePostCommitKeys(key)
 		case state.MergedAncestor:
 			return m.handleMergedAncestorKeys(key)
-		case state.CoachExplainer:
-			return m.handleCoachExplainerKeys(key)
 		case state.Output:
 			if key == "esc" || key == "enter" || key == "q" {
 				m.stateID = state.Dashboard
@@ -276,22 +234,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case git.StackStatusMsg:
-		// We can add stack info to dashboardData if we want to display it in the future
-		// For now, it might be used to check if we have a stack
-		// The original code put stack into StatusMsg.Stack, but DashboardViewData didn't use it directly
-		// except maybe for some logic?
-		// Actually, StatusMsg had .Stack, but DashboardViewData did NOT have .Stack field.
-		// It seems Stack was only used for `StackLoadedMsg` which is separate.
-		// Wait, `StatusMsg` was calculating the stack but `DashboardViewData` ignores it?
-		// Let's check `views/dashboard.go` again.
-
-		// `DashboardViewData` has `Branch`, `Ahead`, `Behind`.
-		// It doesn't seem to visualize the stack in the dashboard main view, only `StackView` does.
-		// However, `git.CheckGitStatus` was fetching it.
-		// `views/dashboard.go` uses `Ahead`/`Behind`.
-
-		// So `StackStatusMsg` is potentially unused in Dashboard?
-		// Ah, `HasStack` might be useful.
 		_ = msg
 
 	case git.StatusMsg:
@@ -303,7 +245,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dashboardData.OnMain = msg.OnMain
 		m.dashboardData.StatusLoaded = true
 
-		// Only update file list if files actually changed
 		if !filesEqual(m.dashboardData.ChangedFiles, msg.ChangedFiles) {
 			m.dashboardData.ChangedFiles = msg.ChangedFiles
 			items := views.FilesToItems(msg.ChangedFiles)
@@ -365,21 +306,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, git.ExecuteSubmit(m.skipHooks)
 			}
 
-			// Check if coach should explain this action
-			if m.coachState.Enabled {
-				// Get fresh status for coaching context
-				localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
-				stackStatus := git.CheckStackStatus().(git.StackStatusMsg)
-
-				// Check if we should show coaching
-				if explainer := coach.CheckTriggers(&m.coachState, msg.Command, localStatus, stackStatus); explainer != nil {
-					m.coachExplainer = *explainer
-					m.stateID = state.CoachExplainer
-					m.outputData.IsRunning = false
-					return m, nil
-				}
-			}
-
 			if m.justCommitted {
 				m.stateID = state.PostCommit
 				m.outputData.IsPostCommit = true
@@ -407,14 +333,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.dashboardData.StackData = m.stackData
-
-	case git.ReflogLoadedMsg:
-		m.reflogData.Items = msg
-		m.reflogData.Cursor = 0
-
-	case git.StashLoadedMsg:
-		m.stashData.Items = msg
-		m.stashData.Cursor = 0
 
 	case vercel.StatusMsg:
 		m.vercelData.Enabled = msg.Enabled
@@ -480,14 +398,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case ui.VercelTickMsg:
-		// Only refresh Vercel when panel is focused - completely pause otherwise
-		if m.vercelClient != nil && m.focusIndex == 2 {
+		// Always refresh Vercel when client is available
+		if m.vercelClient != nil {
 			branches := m.collectVercelBranches()
 			cmds = append(cmds, vercel.FetchStatus(m.vercelClient, branches))
-			// Only reschedule if focused
-			cmds = append(cmds, ui.VercelTickEvery(15*time.Second))
+			cmds = append(cmds, ui.VercelTickEvery(30*time.Second))
 		}
-		// Don't reschedule if not focused - will be restarted when panel gains focus
 		return m, tea.Batch(cmds...)
 
 	case spinner.TickMsg:
@@ -509,13 +425,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	// Global Dashboard keys (Quit, Focus, Update, Help)
-	if key == "q" && m.focusIndex != 1 { // Only quit if not filtering/in list
+	// Global quit (except in file list where q might conflict)
+	if key == "q" && m.focusIndex != 0 {
 		return m, tea.Quit
 	}
 
 	// Global update shortcut (except in file list where u = unstage)
-	if key == "u" && m.focusIndex != 1 {
+	if key == "u" && m.focusIndex != 0 {
 		m.stateID = state.Update
 		m.checkingUpdate = true
 		return m, config.CheckForUpdates()
@@ -528,32 +444,21 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key == "tab" || key == "right" {
-		prevFocus := m.focusIndex
-		m.focusIndex = (m.focusIndex + 1) % 4
-		// Adjust list styling based on focus
-		if m.focusIndex == 1 {
+		m.focusIndex = (m.focusIndex + 1) % 3
+		if m.focusIndex == 0 {
 			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
 		} else {
 			m.fileList.Styles.Title = ui.BoxTitleStyle
-		}
-		// Start Vercel ticker if focusing Vercel panel
-		if m.focusIndex == 2 && prevFocus != 2 && m.vercelClient != nil {
-			return m, tea.Batch(vercel.FetchStatus(m.vercelClient, m.collectVercelBranches()), ui.VercelTickEvery(15*time.Second))
 		}
 		return m, nil
 	}
 
 	if key == "shift+tab" || key == "left" {
-		prevFocus := m.focusIndex
-		m.focusIndex = (m.focusIndex - 1 + 4) % 4
-		if m.focusIndex == 1 {
+		m.focusIndex = (m.focusIndex - 1 + 3) % 3
+		if m.focusIndex == 0 {
 			m.fileList.Styles.Title = ui.BoxTitleStyle.Foreground(lipgloss.Color(ui.ColorAccent))
 		} else {
 			m.fileList.Styles.Title = ui.BoxTitleStyle
-		}
-		// Start Vercel ticker if focusing Vercel panel
-		if m.focusIndex == 2 && prevFocus != 2 && m.vercelClient != nil {
-			return m, tea.Batch(vercel.FetchStatus(m.vercelClient, m.collectVercelBranches()), ui.VercelTickEvery(15*time.Second))
 		}
 		return m, nil
 	}
@@ -564,10 +469,9 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// File List Focus
-	if m.focusIndex == 1 {
+	if m.focusIndex == 0 {
 		var cmd tea.Cmd
 
-		// Custom File List Actions
 		switch key {
 		case "space":
 			if item, ok := m.fileList.SelectedItem().(views.FileItem); ok {
@@ -577,8 +481,10 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, git.ExecuteStageAll(true)
 		case "u":
 			return m, git.ExecuteStageAll(false)
+		case "q":
+			return m, tea.Quit
 		default:
-			// Only pass through to list for navigation keys
+			// Pass through to list for navigation keys
 			m.fileList, cmd = m.fileList.Update(msg)
 			return m, cmd
 		}
@@ -587,32 +493,17 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// Vercel Focus
-	if m.focusIndex == 2 {
+	if m.focusIndex == 1 {
 		return m.handleVercelKeys(key)
 	}
 
 	// Stack Focus
-	if m.focusIndex == 3 {
+	if m.focusIndex == 2 {
 		return m.handleStackPanelKeys(key)
 	}
 
-	// Speed Box / Standard Dashboard Focus (Index 0)
+	// Workflow keys (no panel focused)
 	switch key {
-
-	case "up", "k":
-		if m.dashboardData.SpeedCursor > 0 {
-			m.dashboardData.SpeedCursor--
-		}
-		return m, nil
-
-	case "down", "j":
-		if m.dashboardData.SpeedCursor < 3 {
-			m.dashboardData.SpeedCursor++
-		}
-		return m, nil
-
-	case "enter":
-		return m.executeSpeedAction()
 
 	case "i":
 		m.stateID = state.Running
@@ -620,18 +511,46 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, git.ExecuteInteractive("gt init --no-interactive", "", m.skipHooks)
 
 	case "s":
-		m.stateID = state.WizardType
-		m.wizardData = views.WizardViewData{
-			Stage:       1,
-			CommitTypes: git.GetCommitTypes(),
+		localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
+		hasChanges := len(localStatus.ChangedFiles) > 0
+		if hasChanges {
+			if m.dashboardData.OnMain {
+				m.stateID = state.QuickCommit
+				m.textInput.Reset()
+				m.textInput.Placeholder = "feat: add new feature"
+				m.quickCommitData = views.QuickCommitViewData{
+					FileCount: len(localStatus.ChangedFiles),
+					IsAmend:   false,
+				}
+				return m, textinput.Blink
+			}
+			m.stateID = state.CommitChoice
+			m.commitChoiceData = views.CommitChoiceViewData{
+				Branch:    m.dashboardData.Branch,
+				FileCount: len(localStatus.ChangedFiles),
+				Selected:  0,
+			}
+			return m, nil
+		} else if m.dashboardData.Ahead > 0 {
+			return m.startMergedAncestorCheck(pendingSubmit)
 		}
+		m.setFlash("Nothing to ship")
 		return m, nil
 
-	case "p":
-		return m.startMergedAncestorCheck(pendingSubmit)
-
 	case "f":
-		return m.startMergedAncestorCheck(pendingIterate)
+		localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
+		if len(localStatus.ChangedFiles) > 0 {
+			m.stateID = state.QuickCommit
+			m.textInput.Reset()
+			m.textInput.Placeholder = "fix: update implementation"
+			m.quickCommitData = views.QuickCommitViewData{
+				FileCount: len(localStatus.ChangedFiles),
+				IsAmend:   true,
+			}
+			return m, textinput.Blink
+		}
+		m.setFlash("Nothing to amend")
+		return m, nil
 
 	case "y":
 		return m.startMergedAncestorCheck(pendingSync)
@@ -639,23 +558,6 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		m.confirmData = views.ConfirmViewData{Action: "merge"}
 		m.stateID = state.Confirm
-		return m, nil
-
-	case "g":
-		m.stateID = state.Stack
-		m.stackData.Cursor = 0
-		return m, git.LoadStack()
-
-	case "x":
-		m.stateID = state.Input
-		m.textInput.Reset()
-		m.textInput.Placeholder = "New branch name to rescue your work..."
-		m.confirmData = views.ConfirmViewData{Action: "ghost"}
-		return m, textinput.Blink
-
-	case "m":
-		m.stateID = state.Menu
-		m.cursor = 0
 		return m, nil
 
 	case "h":
@@ -672,7 +574,6 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, ui.RefreshNow()
 
 	case "R":
-		// Check if there are actually any changes (bypass cache)
 		localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
 		if len(localStatus.ChangedFiles) > 0 || localStatus.StagedCount > 0 {
 			m.confirmData = views.ConfirmViewData{Action: "reset"}
@@ -683,27 +584,9 @@ func (m model) handleDashboardKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "z":
-		m.stateID = state.Reflog
-		return m, git.LoadReflog()
-
-	case "t":
-		m.stateID = state.Stash
-		return m, git.LoadStash()
-
-	case "v":
-		m.stateID = state.Vercel
-		return m, vercel.FetchStatus(m.vercelClient, m.collectVercelBranches())
-
-	case "c":
-		// Toggle coach mode
-		m.coachState.Enabled = !m.coachState.Enabled
-		coach.SaveState(m.coachState)
-		if m.coachState.Enabled {
-			m.setFlash("🎓 Coach mode enabled! I'll explain as you work.")
-		} else {
-			m.setFlash("Coach mode disabled. Press [c] to re-enable")
-		}
-		return m, nil
+		m.stateID = state.Running
+		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt undo"}
+		return m, git.ExecuteUndo()
 	}
 
 	return m, nil
@@ -728,217 +611,6 @@ func (m model) collectVercelBranches() []string {
 	return branches
 }
 
-func (m model) handleMenuKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "m":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "q":
-		return m, tea.Quit
-
-	case "up", "k":
-		if m.cursor > 0 {
-			m.cursor--
-		}
-
-	case "down", "j":
-		if m.cursor < len(m.items)-1 {
-			m.cursor++
-		}
-
-	case "h":
-		m.skipHooks = !m.skipHooks
-		m.dashboardData.SkipHooks = m.skipHooks
-
-	case "enter":
-		if m.cursor < 0 || m.cursor >= len(m.items) {
-			return m, nil
-		}
-		selected := m.items[m.cursor]
-
-		if selected.Title == "Start" {
-			m.stateID = state.WizardType
-			m.wizardData = views.WizardViewData{Stage: 1, CommitTypes: git.GetCommitTypes()}
-			return m, nil
-		}
-
-		if selected.Title == "Stack Map" {
-			m.stateID = state.Stack
-			return m, git.LoadStack()
-		}
-
-		if selected.Title == "Ghost Fix" {
-			m.stateID = state.Input
-			m.textInput.Reset()
-			m.textInput.Placeholder = "New branch name..."
-			m.confirmData = views.ConfirmViewData{Action: "ghost"}
-			return m, textinput.Blink
-		}
-
-		if selected.Title == "Share" {
-			return m.startMergedAncestorCheck(pendingSubmit)
-		}
-
-		if selected.Title == "Sync" {
-			return m.startMergedAncestorCheck(pendingSync)
-		}
-
-		if selected.Command != "" {
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: selected.Title}
-			return m, git.ExecuteInteractive(selected.Command, "", m.skipHooks)
-		}
-	}
-
-	return m, nil
-}
-
-func (m model) handleInputKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "enter":
-		inputVal := m.textInput.Value()
-		if inputVal == "" {
-			return m, nil
-		}
-
-		if m.confirmData.Action == "ghost" {
-			m.confirmData.BranchName = inputVal
-			m.stateID = state.Confirm
-			return m, nil
-		}
-
-		if m.confirmData.Action == "stash-create" {
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Create"}
-			return m, git.ExecuteStashCommand("create", inputVal)
-		}
-
-		m.stateID = state.Running
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.textInput, cmd = m.textInput.Update(msg)
-	return m, cmd
-}
-
-func (m model) handleWizardTypeKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "up", "k":
-		if m.wizardData.TypeIdx > 0 {
-			m.wizardData.TypeIdx--
-		}
-
-	case "down", "j":
-		if m.wizardData.TypeIdx < len(m.wizardData.CommitTypes)-1 {
-			m.wizardData.TypeIdx++
-		}
-
-	case "enter":
-		m.stateID = state.WizardScope
-		m.wizardData.Stage = 2
-		m.wizardData.RecentScopes = git.GetRecentScopes()
-		m.textInput.Reset()
-		m.textInput.Placeholder = "auth, ui, api (optional)"
-		return m, textinput.Blink
-	}
-
-	return m, nil
-}
-
-func (m model) handleWizardScopeKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "enter":
-		m.wizardData.Scope = m.textInput.Value()
-		m.stateID = state.WizardSummary
-		m.wizardData.Stage = 3
-		m.textInput.Reset()
-		m.textInput.Placeholder = "Add new login button"
-		return m, textinput.Blink
-	}
-
-	var cmd tea.Cmd
-	m.textInput, cmd = m.textInput.Update(msg)
-	return m, cmd
-}
-
-func (m model) handleWizardSummaryKeys(key string, msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "backspace":
-		if m.textInput.Value() == "" {
-			m.stateID = state.WizardScope
-			m.wizardData.Stage = 2
-			m.textInput.Reset()
-			m.textInput.SetValue(m.wizardData.Scope)
-			return m, textinput.Blink
-		}
-
-	case "enter":
-		m.wizardData.Summary = m.textInput.Value()
-		if m.wizardData.Summary == "" {
-			m.wizardData.ErrorMsg = "Summary is required!"
-			return m, nil
-		}
-		m.wizardData.ErrorMsg = ""
-
-		// Build commit message
-		msgStr := m.wizardData.CommitTypes[m.wizardData.TypeIdx].Label
-		if m.wizardData.Scope != "" {
-			msgStr += fmt.Sprintf("(%s)", m.wizardData.Scope)
-		}
-		msgStr += fmt.Sprintf(": %s", m.wizardData.Summary)
-		m.wizardData.CommitMessage = msgStr
-		m.lastCommitMsg = msgStr
-
-		m.stateID = state.WizardPreview
-		m.wizardData.Stage = 4
-		m.wizardData.FileCount = len(m.dashboardData.ChangedFiles)
-		return m, nil
-	}
-
-	var cmd tea.Cmd
-	m.textInput, cmd = m.textInput.Update(msg)
-	m.wizardData.InputValue = m.textInput.Value()
-	return m, cmd
-}
-
-func (m model) handleWizardPreviewKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "backspace":
-		m.stateID = state.WizardSummary
-		m.wizardData.Stage = 3
-		m.textInput.Reset()
-		m.textInput.SetValue(m.wizardData.Summary)
-		return m, textinput.Blink
-
-	case "enter":
-		m.justCommitted = true
-		m.pendingCommitMsg = ""
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt create"}
-		return m, git.ExecuteCommit(m.lastCommitMsg, m.skipHooks)
-	}
-
-	return m, nil
-}
-
 func (m model) handleConfirmKeys(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "y", "enter":
@@ -949,9 +621,6 @@ func (m model) handleConfirmKeys(key string) (tea.Model, tea.Cmd) {
 		case "merge":
 			m.outputData.Command = "merge"
 			return m, git.ExecuteInteractive("gt merge --no-interactive && gt sync --no-interactive", "", m.skipHooks)
-		case "ghost":
-			m.outputData.Command = "Ghost Fix"
-			return m, git.ExecuteGhostFix(m.confirmData.BranchName, m.skipHooks)
 		case "reset":
 			m.outputData.Command = "hard reset"
 			return m, git.ExecuteHardReset()
@@ -1012,7 +681,6 @@ func (m model) handleCommitChoiceKeys(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "enter":
-		// Transition to QuickCommit with the chosen mode
 		m.stateID = state.QuickCommit
 		m.textInput.Reset()
 		if m.commitChoiceData.Selected == 0 {
@@ -1060,91 +728,6 @@ func (m model) handleStackKeys(key string) (tea.Model, tea.Cmd) {
 
 	case "r":
 		return m, git.LoadStack()
-	}
-
-	return m, nil
-}
-
-func (m model) handleReflogKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "q":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "up", "k":
-		if m.reflogData.Cursor > 0 {
-			m.reflogData.Cursor--
-		}
-
-	case "down", "j":
-		if m.reflogData.Cursor < len(m.reflogData.Items)-1 {
-			m.reflogData.Cursor++
-		}
-
-	case "enter":
-		if len(m.reflogData.Items) > 0 {
-			// We will hard reset to this hash
-			target := m.reflogData.Items[m.reflogData.Cursor]
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "Reset to " + target.Hash}
-
-			// Custom reset command
-			cmd := exec.Command("git", "reset", "--hard", target.Hash)
-			return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
-				return git.CmdFinishedMsg{Err: err, Command: "Reset to " + target.Hash, Output: "Reset complete."}
-			})
-		}
-	}
-
-	return m, nil
-}
-
-func (m model) handleStashKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "esc", "q":
-		m.stateID = state.Dashboard
-		return m, nil
-
-	case "up", "k":
-		if m.stashData.Cursor > 0 {
-			m.stashData.Cursor--
-		}
-
-	case "down", "j":
-		if m.stashData.Cursor < len(m.stashData.Items)-1 {
-			m.stashData.Cursor++
-		}
-
-	case "enter":
-		if len(m.stashData.Items) > 0 {
-			target := m.stashData.Items[m.stashData.Cursor]
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Pop"}
-			return m, git.ExecuteStashCommand("pop", target.ID)
-		}
-
-	case "a":
-		if len(m.stashData.Items) > 0 {
-			target := m.stashData.Items[m.stashData.Cursor]
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Apply"}
-			return m, git.ExecuteStashCommand("apply", target.ID)
-		}
-
-	case "d":
-		if len(m.stashData.Items) > 0 {
-			target := m.stashData.Items[m.stashData.Cursor]
-			m.stateID = state.Running
-			m.outputData = views.OutputViewData{IsRunning: true, Command: "Stash Drop"}
-			return m, git.ExecuteStashCommand("drop", target.ID)
-		}
-
-	case "c":
-		m.stateID = state.Input
-		m.textInput.Reset()
-		m.textInput.Placeholder = "Stash message (optional)..."
-		m.confirmData = views.ConfirmViewData{Action: "stash-create"} // Hijacking existing struct field for type
-		return m, textinput.Blink
 	}
 
 	return m, nil
@@ -1305,108 +888,6 @@ func (m model) handlePostCommitKeys(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m model) handleCoachExplainerKeys(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "enter", "esc":
-		// Mark lesson as learned
-		if lesson, ok := m.coachState.Lessons[m.coachExplainer.LessonID]; ok {
-			lesson.Learned = true
-			lesson.TimesShown++
-			lesson.LastShown = time.Now()
-		}
-		coach.SaveState(m.coachState)
-		m.stateID = state.Dashboard
-		return m, ui.RefreshNow()
-
-	case "d":
-		// Don't show this specific lesson again
-		if m.coachExplainer.CanSkip {
-			if lesson, ok := m.coachState.Lessons[m.coachExplainer.LessonID]; ok {
-				lesson.Learned = true
-			}
-			coach.SaveState(m.coachState)
-			m.stateID = state.Dashboard
-			return m, ui.RefreshNow()
-		}
-
-	case "c":
-		// Disable coach entirely
-		m.coachState.Enabled = false
-		coach.SaveState(m.coachState)
-		m.setFlash("Coach mode disabled. Press [c] to re-enable")
-		m.stateID = state.Dashboard
-		return m, ui.RefreshNow()
-	}
-
-	return m, nil
-}
-
-func (m model) executeSpeedAction() (tea.Model, tea.Cmd) {
-	// Get fresh status to avoid cache issues
-	localStatus := git.CheckLocalStatus().(git.LocalStatusMsg)
-	hasChanges := len(localStatus.ChangedFiles) > 0
-
-	switch m.dashboardData.SpeedCursor {
-	case 0: // Ship
-		if hasChanges {
-			if m.dashboardData.OnMain {
-				// On main: go straight to QuickCommit (create new branch)
-				m.stateID = state.QuickCommit
-				m.textInput.Reset()
-				m.textInput.Placeholder = "feat: add new feature"
-				m.quickCommitData = views.QuickCommitViewData{
-					FileCount: len(localStatus.ChangedFiles),
-					IsAmend:   false,
-				}
-				return m, textinput.Blink
-			}
-			// On feature branch: show choice dialog (amend vs stack)
-			m.stateID = state.CommitChoice
-			m.commitChoiceData = views.CommitChoiceViewData{
-				Branch:    m.dashboardData.Branch,
-				FileCount: len(localStatus.ChangedFiles),
-				Selected:  0, // Default to Amend
-			}
-			return m, nil
-		} else if m.dashboardData.Ahead > 0 {
-			return m.startMergedAncestorCheck(pendingSubmit)
-		}
-		m.setFlash("Nothing to ship - no changes or unpushed commits")
-		return m, nil
-
-	case 1: // Iterate
-		if hasChanges {
-			// Show quick commit wizard in amend mode
-			m.stateID = state.QuickCommit
-			m.textInput.Reset()
-			m.textInput.Placeholder = "fix: update implementation"
-			m.quickCommitData = views.QuickCommitViewData{
-				FileCount: len(localStatus.ChangedFiles),
-				IsAmend:   true,
-			}
-			return m, textinput.Blink
-		}
-		m.setFlash("Nothing to amend - no changes")
-		return m, nil
-
-	case 2: // Reset
-		if hasChanges {
-			m.confirmData = views.ConfirmViewData{Action: "reset"}
-			m.stateID = state.Confirm
-			return m, nil
-		}
-		m.setFlash("Nothing to reset - working tree is clean")
-		return m, nil
-
-	case 3: // Undo
-		m.stateID = state.Running
-		m.outputData = views.OutputViewData{IsRunning: true, Command: "gt undo"}
-		return m, git.ExecuteUndo()
-	}
-
-	return m, nil
-}
-
 // --- View ---
 
 func (m model) View() string {
@@ -1414,34 +895,14 @@ func (m model) View() string {
 
 	// Sync file list to dashboard data
 	m.dashboardData.FileList = m.fileList
-	m.dashboardData.FileBoxFocused = m.focusIndex == 1
-	m.dashboardData.VercelFocused = m.focusIndex == 2
-	m.dashboardData.StackFocused = m.focusIndex == 3
+	m.dashboardData.FileBoxFocused = m.focusIndex == 0
+	m.dashboardData.VercelFocused = m.focusIndex == 1
+	m.dashboardData.StackFocused = m.focusIndex == 2
 	m.dashboardData.VercelSummary = m.vercelData
 
 	switch m.stateID {
-	case state.Dashboard, state.Menu:
+	case state.Dashboard:
 		return views.RenderDashboard(ctx, m.dashboardData)
-
-	case state.WizardType:
-		return views.RenderCentered(views.RenderWizardType(m.wizardData))
-
-	case state.WizardScope:
-		return views.RenderCentered(views.RenderWizardScope(m.wizardData, m.textInput.View()))
-
-	case state.WizardSummary:
-		return views.RenderCentered(views.RenderWizardSummary(m.wizardData, m.textInput.View()))
-
-	case state.WizardPreview:
-		return views.RenderCentered(views.RenderWizardPreview(m.wizardData))
-
-	case state.Input:
-		data := views.InputViewData{
-			Title:       "Rescue Mode",
-			Description: "Name a new branch to save your work:",
-			InputView:   m.textInput.View(),
-		}
-		return views.RenderCentered(views.RenderInput(data))
 
 	case state.QuickCommit:
 		return views.RenderCentered(views.RenderQuickCommit(m.quickCommitData, m.textInput.View()))
@@ -1455,20 +916,8 @@ func (m model) View() string {
 	case state.Stack:
 		return views.RenderCentered(views.RenderStack(m.stackData))
 
-	case state.Reflog:
-		return views.RenderCentered(views.RenderReflog(m.reflogData))
-
-	case state.Stash:
-		return views.RenderCentered(views.RenderStash(m.stashData))
-
-	case state.Vercel:
-		return views.RenderCentered(views.RenderVercel(m.vercelData, ctx.MainWidth()))
-
 	case state.MergedAncestor:
 		return views.RenderCentered(views.RenderMergedAncestor(m.mergedAncestorData))
-
-	case state.CoachExplainer:
-		return views.RenderCentered(views.RenderExplainer(m.coachExplainer))
 
 	case state.Update:
 		data := views.UpdateViewData{
@@ -1579,7 +1028,7 @@ func filesEqual(a, b []git.ChangedFile) bool {
 func isBranchModifyingCommand(cmd string) bool {
 	branchCommands := []string{
 		"gt create", "gt checkout", "gt merge", "gt sync",
-		"gt undo", "Ghost Fix", "turbo ship",
+		"gt undo", "turbo ship",
 	}
 	for _, bc := range branchCommands {
 		if cmd == bc || len(cmd) > len(bc) && cmd[:len(bc)] == bc {

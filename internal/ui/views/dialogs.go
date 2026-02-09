@@ -13,8 +13,7 @@ import (
 
 // ConfirmViewData contains confirmation dialog data
 type ConfirmViewData struct {
-	Action     string // "merge", "ghost", "reset"
-	BranchName string // For ghost fix
+	Action string // "merge", "reset"
 }
 
 // RenderConfirm renders the confirmation dialog
@@ -28,10 +27,6 @@ func RenderConfirm(data ConfirmViewData) string {
 		description = "Merge approved PR and delete local branch."
 		warning = "Make sure your PR is approved!"
 		bullets = []string{"• Merge PR on GitHub", "• Delete local branch", "• Sync with remote"}
-	case "ghost":
-		title = "Rescue Mode"
-		description = fmt.Sprintf("Creating new branch: %s", data.BranchName)
-		bullets = []string{"• Create branch with changes", "• Rebase onto main", "• Sync with remote"}
 	case "reset":
 		title = "Hard Reset"
 		description = "Discard ALL uncommitted changes."
@@ -159,26 +154,6 @@ func RenderMergedAncestor(data MergedAncestorViewData) string {
 	return lipgloss.JoinVertical(lipgloss.Left, content...)
 }
 
-// --- Input Dialog ---
-
-// InputViewData contains input dialog data
-type InputViewData struct {
-	Title       string
-	Description string
-	InputView   string
-}
-
-// RenderInput renders the input dialog
-func RenderInput(data InputViewData) string {
-	return lipgloss.JoinVertical(lipgloss.Left,
-		lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render(data.Title),
-		ui.SubtitleStyle.Render(data.Description),
-		"",
-		ui.InputBoxStyle.Render(data.InputView),
-		"",
-		ui.SubtitleStyle.Render("Enter to confirm • Esc to cancel"),
-	)
-}
 
 // --- Output/Running View ---
 
@@ -303,36 +278,30 @@ func RenderStack(data StackViewData) string {
 
 // RenderHelp renders the help view
 func RenderHelp() string {
-	coachSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("COACH")
-	speedSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("SPEED (↑↓ to select, ⏎ to run)")
 	workflowSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("WORKFLOW")
 	navSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("NAVIGATION")
+	otherSection := lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorAccent)).Bold(true).Render("OTHER")
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		ui.TitleStyle.Render("Help"),
 		"",
-		coachSection,
-		"  c   Toggle    Interactive learning mode",
-		"              Coach shows explanations after you take actions",
-		"",
-		speedSection,
-		"  Ship     Smart: creates OR amends based on context",
-		"  Iterate  Amend last commit + push to update PR",
-		"  Reset    Discard all uncommitted changes",
-		"  Undo     Reverse last Graphite operation",
-		"",
 		workflowSection,
-		"  s   Start     Create new branch + commit (wizard)",
-		"  p   Share     Submit PR → preview build",
+		"  s   Ship      Create branch + commit + PR (or amend)",
+		"  f   Iterate   Amend last commit + push to update PR",
 		"  y   Sync      Pull latest from team",
 		"  d   Done      Merge approved PR",
 		"",
 		navSection,
-		"  g   Stack     Visual stack map",
-		"  x   Rescue    Ghost fix for merged branches",
-		"  Tab/←/→ Focus Cycle panels",
+		"  Tab       Cycle panels (Changes → Vercel → Stack)",
+		"  Space/a   Stage/Stage All (in file list)",
+		"  Enter     Open URL (Vercel) / Checkout (Stack)",
+		"",
+		otherSection,
+		"  R   Reset     Discard all uncommitted changes",
+		"  z   Undo      Reverse last Graphite operation",
 		"  h   Hooks     Toggle pre-commit hooks",
 		"  u   Update    Check for updates",
+		"  q   Quit",
 		"",
 		ui.SubtitleStyle.Render("[Esc] Back"),
 	)

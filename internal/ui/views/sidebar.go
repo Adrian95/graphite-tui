@@ -80,12 +80,9 @@ func renderQuickActions() string {
 		key   string
 		label string
 	}{
-		{"s", "New"},
-		{"p", "PR"},
+		{"s", "Ship"},
 		{"y", "Sync"},
-		{"d", "Merge"},
-		{"g", "Stack"},
-		{"u", "Update"},
+		{"d", "Done"},
 		{"?", "Help"},
 	}
 
@@ -95,28 +92,4 @@ func renderQuickActions() string {
 	}
 
 	return strings.Join(parts, "\n")
-}
-
-// RenderFooter renders the bottom footer with shortcuts
-func RenderFooter(ctx RenderContext) string {
-	shortcuts := []struct {
-		key   string
-		label string
-	}{
-		{"s", "New"},
-		{"p", "PR"},
-		{"y", "Sync"},
-		{"d", "Merge"},
-		{"g", "Stack"},
-		{"?", "Help"},
-	}
-
-	var parts []string
-	for _, s := range shortcuts {
-		parts = append(parts, ui.FooterKeyStyle.Render(s.key)+" "+ui.FooterLabelStyle.Render(s.label))
-	}
-
-	line := strings.Repeat("─", ctx.Width-4)
-	content := strings.Join(parts, "   ")
-	return ui.FooterStyle.Render(ui.SubtitleStyle.Render(line) + "\n" + content)
 }

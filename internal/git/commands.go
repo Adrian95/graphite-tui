@@ -29,37 +29,6 @@ type StackItem struct {
 	Level   int
 }
 
-// ReflogItem represents a git reflog entry
-type ReflogItem struct {
-	Hash    string
-	Message string
-	Date    string
-	RefName string // HEAD@{n}
-}
-
-// StashItem represents a git stash entry
-type StashItem struct {
-	ID      string // stash@{n}
-	Branch  string
-	Message string
-	Date    string
-}
-
-// MenuItem represents a menu option
-type MenuItem struct {
-	Title   string
-	Desc    string
-	Guide   string
-	Command string
-	Key     string
-}
-
-// CommitType represents a conventional commit type
-type CommitType struct {
-	Label   string
-	Desc    string
-	Example string
-}
 
 // --- Message Types ---
 
@@ -111,11 +80,6 @@ type StatusMsg struct {
 // StackLoadedMsg is sent when the stack is loaded
 type StackLoadedMsg []StackItem
 
-// ReflogLoadedMsg is sent when the reflog is loaded
-type ReflogLoadedMsg []ReflogItem
-
-// StashLoadedMsg is sent when the stash is loaded
-type StashLoadedMsg []StashItem
 
 // MergedAncestorIssue represents a merged ancestor branch
 type MergedAncestorIssue struct {
@@ -136,36 +100,6 @@ type MergedAncestorCheckMsg struct {
 
 var executor = NewCommandExecutor()
 
-// --- Menu and Commit Type Definitions ---
-
-// GetMenuItems returns the list of menu items
-func GetMenuItems() []MenuItem {
-	return []MenuItem{
-		{Title: "Init", Desc: "Initialize Graphite", Guide: "Sets up Graphite in this repo.", Command: "gt init --no-interactive", Key: "i"},
-		{Title: "Start", Desc: "Create branch & commit", Guide: "Creates a new branch with commit.", Command: "gt create -a --no-interactive -m", Key: "s"},
-		{Title: "Share", Desc: "Submit for review", Guide: "Submits your changes for review.", Command: "gt submit --no-interactive", Key: "p"},
-		{Title: "Fix", Desc: "Amend changes", Guide: "Updates your last commit.", Command: "", Key: "f"},
-		{Title: "Sync", Desc: "Update local", Guide: "Pulls latest changes from GitHub.", Command: "gt sync", Key: "y"},
-		{Title: "Done", Desc: "Merge & Cleanup", Guide: "Merges approved PR and cleans up.", Command: "gt merge --no-interactive && gt sync --no-interactive", Key: "d"},
-		{Title: "Fold", Desc: "Squash stack", Guide: "Combines multiple commits into one.", Command: "gt fold --no-interactive", Key: ""},
-		{Title: "Ghost Fix", Desc: "Rescue ghost branch", Guide: "Rescues work from merged branch.", Command: "", Key: ""},
-		{Title: "Stack Map", Desc: "Visual GPS", Guide: "See branches visually.", Command: "gt log short", Key: "g"},
-	}
-}
-
-// GetCommitTypes returns the list of conventional commit types
-func GetCommitTypes() []CommitType {
-	return []CommitType{
-		{"feat", "New feature", "add dark mode toggle"},
-		{"fix", "Bug fix", "fix login redirect loop"},
-		{"docs", "Documentation", "update API docs"},
-		{"style", "Formatting", "fix indentation"},
-		{"refactor", "Code restructure", "extract auth logic"},
-		{"perf", "Performance", "cache API responses"},
-		{"test", "Tests", "add login tests"},
-		{"chore", "Tooling", "update dependencies"},
-	}
-}
 
 // --- Helper Functions ---
 
@@ -201,38 +135,6 @@ func getDefaultCommitMessage() string {
 	return "wip: " + time.Now().Format("Jan 2 15:04")
 }
 
-// GetRecentScopes scans git log for used scopes
-func GetRecentScopes() []string {
-	// grep for patterns like "feat(scope):" or "fix(scope):"
-	cmd := exec.Command("git", "log", "-n", "100", "--format=%s")
-	out, err := cmd.Output()
-	if err != nil {
-		return []string{}
-	}
-
-	scopesMap := make(map[string]bool)
-	var scopes []string
-
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		// regex-like parsing: look for '(' and '):'
-		start := strings.Index(line, "(")
-		end := strings.Index(line, "):")
-		if start != -1 && end != -1 && end > start {
-			scope := line[start+1 : end]
-			if !scopesMap[scope] && scope != "" {
-				scopesMap[scope] = true
-				scopes = append(scopes, scope)
-			}
-		}
-	}
-
-	// Limit to top 5
-	if len(scopes) > 5 {
-		return scopes[:5]
-	}
-	return scopes
-}
 
 // --- Git Status Commands ---
 
@@ -346,25 +248,6 @@ func CheckGitStatus() (LocalStatusMsg, StackStatusMsg) {
 	return local, stack
 }
 
-// CheckMinimalStatus gets lightweight status without expensive file operations
-func CheckMinimalStatus() LocalStatusMsg {
-	status := LocalStatusMsg{}
-
-	// Check if Graphite is initialized
-	if _, err := os.Stat(".git/.graphite_repo_config"); err == nil {
-		status.GtInitialized = true
-	}
-
-	// Get current branch only
-	if out, err := exec.Command("git", "branch", "--show-current").Output(); err == nil {
-		status.Branch = strings.TrimSpace(string(out))
-	}
-
-	// Skip expensive operations (file listing, ahead/behind counts)
-	// These will be loaded lazily when needed
-
-	return status
-}
 
 func generateSuggestion(s LocalStatusMsg) string {
 	switch {
@@ -406,62 +289,6 @@ func LoadStack() tea.Cmd {
 	}
 }
 
-// LoadReflog loads the git reflog
-func LoadReflog() tea.Cmd {
-	return func() tea.Msg {
-		// format: abbreviated_commit|relative_date|subject|refname
-		out, err := exec.Command("git", "reflog", "--date=relative", "--format=%h|%cr|%gs|%gd", "-n", "50").Output()
-		if err != nil {
-			return ReflogLoadedMsg{}
-		}
-
-		var items []ReflogItem
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			parts := strings.Split(line, "|")
-			if len(parts) >= 4 {
-				items = append(items, ReflogItem{
-					Hash:    parts[0],
-					Date:    parts[1],
-					Message: parts[2],
-					RefName: parts[3],
-				})
-			}
-		}
-		return ReflogLoadedMsg(items)
-	}
-}
-
-// LoadStash loads the git stash
-func LoadStash() tea.Cmd {
-	return func() tea.Msg {
-		// format: stash@{n}|branch|relative_date|message
-		// git stash list --format="%gd|%b|%cr|%s"
-		out, err := exec.Command("git", "stash", "list", "--format=%gd|%b|%cr|%s").Output()
-		if err != nil {
-			return StashLoadedMsg{}
-		}
-
-		var items []StashItem
-		for _, line := range strings.Split(string(out), "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			parts := strings.Split(line, "|")
-			if len(parts) >= 4 {
-				items = append(items, StashItem{
-					ID:      parts[0],
-					Branch:  parts[1],
-					Date:    parts[2],
-					Message: parts[3],
-				})
-			}
-		}
-		return StashLoadedMsg(items)
-	}
-}
 
 // CheckMergedAncestors inspects ancestors for merged PRs missing from trunk
 func CheckMergedAncestors() tea.Cmd {
@@ -705,35 +532,6 @@ func trunkContainsBranch(trunk, branch string) (bool, error) {
 	return true, nil
 }
 
-// ExecuteStashCommand performs a stash action
-func ExecuteStashCommand(action string, id string) tea.Cmd {
-	return func() tea.Msg {
-		var cmd *exec.Cmd
-		msg := ""
-
-		switch action {
-		case "pop":
-			cmd = exec.Command("git", "stash", "pop", id)
-			msg = "Stash popped!"
-		case "apply":
-			cmd = exec.Command("git", "stash", "apply", id)
-			msg = "Stash applied!"
-		case "drop":
-			cmd = exec.Command("git", "stash", "drop", id)
-			msg = "Stash dropped!"
-		case "create":
-			// id is message here
-			cmd = exec.Command("git", "stash", "push", "-m", id)
-			msg = "Stashed changes!"
-		}
-
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return CmdFinishedMsg{Err: err, Command: "Stash " + action, Output: string(output)}
-		}
-		return CmdFinishedMsg{Command: "Stash " + action, Output: msg + "\n" + string(output)}
-	}
-}
 
 // --- Command Execution Functions ---
 
@@ -786,39 +584,6 @@ func ExecuteStageAll(stage bool) tea.Cmd {
 	}
 }
 
-// ExecuteCommit creates a new branch and commit
-func ExecuteCommit(msg string, skipHooks bool) tea.Cmd {
-	// Check if we have staged files
-	// If yes, we commit only staged (no -a)
-	// If no, we commit all (-a) - Legacy behavior
-
-	// We can't easily check logic here without running a command,
-	// so we'll rely on the caller or check quickly.
-	// Actually, let's just check git diff --cached --quiet
-	// Exit code 1 means differences (staged changes exist)
-	// Exit code 0 means no differences (nothing staged)
-
-	hasStaged := false
-	if err := exec.Command("git", "diff", "--cached", "--quiet").Run(); err != nil {
-		hasStaged = true
-	}
-
-	args := []string{"create", "--no-interactive", "-m", msg}
-	if !hasStaged {
-		args = append(args, "-a")
-	}
-
-	if skipHooks {
-		args = append(args, "--no-verify")
-	}
-
-	cmd := exec.Command("gt", args...)
-	cmd.Env = buildNonInteractiveEnv()
-
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return CmdFinishedMsg{Err: err, Command: "gt create"}
-	})
-}
 
 // ExecuteSubmit pushes changes and creates/updates PR
 func ExecuteSubmit(skipHooks bool) tea.Cmd {
@@ -964,30 +729,6 @@ func ExecuteFix(skipHooks bool) tea.Cmd {
 	}
 }
 
-// ExecuteGhostFix runs the ghost branch rescue sequence
-func ExecuteGhostFix(branchName string, skipHooks bool) tea.Cmd {
-	// Sanitize branch name
-	safeName := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
-			(r >= '0' && r <= '9') || r == '-' || r == '_' || r == '/' {
-			return r
-		}
-		return '-'
-	}, branchName)
-
-	noVerify := ""
-	if skipHooks {
-		noVerify = " --no-verify"
-	}
-
-	script := "gt create -a --no-interactive" + noVerify + " -m \"$1\" && gt rebase main --no-interactive && gt sync --no-interactive"
-	cmd := exec.Command("sh", "-c", script, "--", safeName)
-	cmd.Env = buildNonInteractiveEnv()
-
-	return tea.ExecProcess(cmd, func(err error) tea.Msg {
-		return CmdFinishedMsg{Err: err, Command: "Ghost Fix"}
-	})
-}
 
 // ExecuteHardReset discards all uncommitted changes
 func ExecuteHardReset() tea.Cmd {

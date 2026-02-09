@@ -31,42 +31,30 @@ func renderGridLayout(ctx RenderContext, data DashboardViewData) string {
 	panelWidth := ctx.MainSplitWidth()
 	gap := "  "
 
-	// Panels with focus states
-	speedFocused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
-	speedPanel := renderSpeedPanel(panelWidth, data, speedFocused)
+	// Left column: Files panel (full height)
 	filesPanel := renderFilesPanel(panelWidth, data, data.FileBoxFocused)
+
+	// Right column: Vercel + Stack stacked
 	vercelPanel := renderVercelPanel(panelWidth, data, data.VercelFocused)
 	stackPanel := RenderStackPanel(panelWidth, data.StackData, data.StackFocused)
 
-	// Layout rows
-	leftColumn := lipgloss.JoinVertical(lipgloss.Top,
-		speedPanel,
-		"",
-		filesPanel,
-	)
 	rightColumn := lipgloss.JoinVertical(lipgloss.Top,
 		vercelPanel,
 		"",
 		stackPanel,
 	)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftColumn, gap, rightColumn)
+	return lipgloss.JoinHorizontal(lipgloss.Top, filesPanel, gap, rightColumn)
 }
 
 func renderStackLayout(ctx RenderContext, data DashboardViewData) string {
-	fullWidth := ctx.MainWidth() - 2 // Account for borders
+	fullWidth := ctx.MainWidth() - 2
 
-	// Panels with focus states
-	speedFocused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
-	speedPanel := renderSpeedPanel(fullWidth, data, speedFocused)
 	filesPanel := renderFilesPanel(fullWidth, data, data.FileBoxFocused)
 	vercelPanel := renderVercelPanel(fullWidth, data, data.VercelFocused)
 	stackPanel := RenderStackPanel(fullWidth, data.StackData, data.StackFocused)
 
-	// Stack vertically
 	return lipgloss.JoinVertical(lipgloss.Left,
-		speedPanel,
-		"",
 		filesPanel,
 		"",
 		vercelPanel,
@@ -76,52 +64,17 @@ func renderStackLayout(ctx RenderContext, data DashboardViewData) string {
 }
 
 func renderSingleLayout(ctx RenderContext, data DashboardViewData) string {
-	fullWidth := ctx.MainWidth() - 2 // Account for borders
+	fullWidth := ctx.MainWidth() - 2
 
-	// Show only the currently focused panel
 	if data.FileBoxFocused {
 		return renderFilesPanel(fullWidth, data, true)
 	} else if data.VercelFocused {
 		return renderVercelPanel(fullWidth, data, true)
 	} else if data.StackFocused {
 		return RenderStackPanel(fullWidth, data.StackData, true)
-	} else {
-		// Default to speed panel
-		return renderSpeedPanel(fullWidth, data, true)
 	}
-}
-
-func renderSpeedPanel(width int, data DashboardViewData, isFocused bool) string {
-	focused := !data.FileBoxFocused && !data.VercelFocused && !data.StackFocused
-	title := renderPanelTitle("Speed", focused)
-
-	actions := []string{}
-	items := []struct {
-		label string
-	}{
-		{"Ship"},
-		{"Iterate"},
-		{"Reset"},
-		{"Undo"},
-	}
-	for i, item := range items {
-		marker := ui.MenuItemStyle.Render("□")
-		labelStyle := ui.MenuItemStyle
-		if i == data.SpeedCursor {
-			marker = ui.MenuSelectedStyle.Render("■")
-			labelStyle = ui.MenuSelectedStyle
-		}
-		actions = append(actions, marker+" "+labelStyle.Render(item.label))
-	}
-
-	content := strings.Join(actions, "\n")
-
-	// Use focused or unfocused styling
-	style := ui.BorderedBoxStyleUnfocused
-	if isFocused {
-		style = ui.BorderedBoxStyleFocused
-	}
-	return style.Width(width - 2).Render(title + "\n" + content)
+	// Default to files panel
+	return renderFilesPanel(fullWidth, data, true)
 }
 
 func renderFilesPanel(width int, data DashboardViewData, isFocused bool) string {
@@ -129,7 +82,6 @@ func renderFilesPanel(width int, data DashboardViewData, isFocused bool) string 
 
 	var content string
 	if !data.StatusLoaded {
-		// Show loading state before first status fetch completes
 		content = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSub)).Render("Loading...")
 	} else if len(data.ChangedFiles) == 0 {
 		content = lipgloss.NewStyle().Foreground(lipgloss.Color(ui.ColorSuccess)).Render("✓ Clean")
@@ -144,7 +96,6 @@ func renderFilesPanel(width int, data DashboardViewData, isFocused bool) string 
 		content = fileList.View()
 	}
 
-	// Use focused or unfocused styling
 	style := ui.BorderedBoxStyleUnfocused
 	if isFocused {
 		style = ui.BorderedBoxStyleFocused

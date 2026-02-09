@@ -12,37 +12,25 @@ type StateID int
 
 const (
 	Dashboard StateID = iota
-	Menu
-	Input
 	Running
 	Output
-	WizardType
-	WizardScope
-	WizardSummary
-	WizardPreview
 	Stack
 	Help
 	Update
 	Confirm
-	Startup
 	PostCommit
 	QuickCommit
 	CommitChoice
-	Reflog
-	Stash
-	Vercel
 	MergedAncestor
-	CoachExplainer
+	Startup
 )
 
 // String returns the state name for debugging
 func (s StateID) String() string {
 	names := []string{
-		"Dashboard", "Menu", "Input", "Running", "Output",
-		"WizardType", "WizardScope", "WizardSummary", "WizardPreview",
-		"Stack", "Help", "Update", "Confirm", "Startup", "PostCommit",
-		"QuickCommit", "CommitChoice", "Reflog", "Stash", "Vercel", "MergedAncestor",
-		"CoachExplainer",
+		"Dashboard", "Running", "Output",
+		"Stack", "Help", "Update", "Confirm", "PostCommit",
+		"QuickCommit", "CommitChoice", "MergedAncestor", "Startup",
 	}
 	if int(s) < len(names) {
 		return names[s]
@@ -147,31 +135,13 @@ func (m *Manager) History() []StateID {
 // ValidTransitions defines allowed transitions from each state
 var ValidTransitions = map[StateID][]StateID{
 	Dashboard: {
-		Menu, Input, Running, WizardType, Stack, Help, Update, Confirm, QuickCommit, CommitChoice, Reflog, Stash, Vercel, MergedAncestor,
-	},
-	Menu: {
-		Dashboard, Input, Running, WizardType, Stack,
-	},
-	Input: {
-		Dashboard, Running, Confirm,
+		Running, Stack, Help, Update, Confirm, QuickCommit, CommitChoice, MergedAncestor,
 	},
 	Running: {
-		Output, PostCommit, Dashboard, MergedAncestor, CoachExplainer,
+		Output, PostCommit, Dashboard, MergedAncestor,
 	},
 	Output: {
-		Dashboard, CoachExplainer,
-	},
-	WizardType: {
-		Dashboard, WizardScope,
-	},
-	WizardScope: {
-		Dashboard, WizardType, WizardSummary,
-	},
-	WizardSummary: {
-		Dashboard, WizardScope, WizardPreview,
-	},
-	WizardPreview: {
-		Dashboard, WizardSummary, Running,
+		Dashboard,
 	},
 	Stack: {
 		Dashboard, Running,
@@ -197,20 +167,8 @@ var ValidTransitions = map[StateID][]StateID{
 	CommitChoice: {
 		Dashboard, QuickCommit,
 	},
-	Reflog: {
-		Dashboard, Running,
-	},
-	Stash: {
-		Dashboard, Running,
-	},
-	Vercel: {
-		Dashboard, Running,
-	},
 	MergedAncestor: {
 		Dashboard, Running,
-	},
-	CoachExplainer: {
-		Dashboard,
 	},
 }
 

@@ -2,7 +2,6 @@ package views
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/Adrian95/graphite-tui/v2/internal/ui"
 	"github.com/Adrian95/graphite-tui/v2/internal/vercel"
@@ -17,22 +16,6 @@ type VercelViewData struct {
 	Cursor      int
 	HasError    bool
 	ErrorString string
-}
-
-// RenderVercel renders the Vercel panel list
-func RenderVercel(data VercelViewData, width int) string {
-	title := ui.BoxTitleStyle.Render("Vercel")
-
-	if !data.Enabled {
-		return ui.BoxStyle.Width(width - 2).Render(title + "\n" + ui.SubtitleStyle.Render("Not configured"))
-	}
-	if data.HasError {
-		return ui.BoxStyle.Width(width - 2).Render(title + "\n" + ui.SubtitleStyle.Render("Error: "+data.ErrorString))
-	}
-
-	content := RenderVercelTable(width, data, true)
-	return ui.BoxStyle.Width(width - 2).Render(title + "\n" + content)
-
 }
 
 func RenderVercelSummary(summary vercel.Summary) string {
@@ -72,9 +55,3 @@ func vercelState(state string) string {
 	}
 }
 
-func formatTime(ts int64) string {
-	if ts == 0 {
-		return ""
-	}
-	return time.UnixMilli(ts).Format("15:04")
-}

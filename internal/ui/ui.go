@@ -92,12 +92,7 @@ var (
 	FileDeletedStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorError))
 	FileUntrackedStyle = lipgloss.NewStyle().Foreground(lipgloss.Color(ColorSub))
 
-	// Wizard / Input
-	WizardQuestionStyle = lipgloss.NewStyle().
-				Foreground(lipgloss.Color(ColorFg)).
-				Bold(true).
-				PaddingBottom(1)
-
+	// Input
 	InputBoxStyle = lipgloss.NewStyle().
 			Foreground(lipgloss.Color(ColorFg)).
 			Width(50)

@@ -4,7 +4,6 @@ import (
 	"time"
 
 	"github.com/Adrian95/graphite-tui/v2/internal/git"
-	"github.com/Adrian95/graphite-tui/v2/internal/vercel"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -22,7 +21,6 @@ type DashboardData struct {
 	GtInitialized bool
 	Suggestion    string
 	LastRefresh   time.Time
-	SpeedCursor   int
 	FilesExpanded bool
 }
 
@@ -43,64 +41,6 @@ func (s *DashboardState) CanTransitionTo(target StateID) bool {
 
 func (s *DashboardState) OnEnter() tea.Cmd { return nil }
 func (s *DashboardState) OnExit()          {}
-
-// --- Menu State ---
-
-type MenuData struct {
-	Items  []git.MenuItem
-	Cursor int
-}
-
-type MenuState struct {
-	Data MenuData
-}
-
-func NewMenuState(items []git.MenuItem) *MenuState {
-	return &MenuState{
-		Data: MenuData{Items: items, Cursor: 0},
-	}
-}
-
-func (s *MenuState) ID() StateID { return Menu }
-
-func (s *MenuState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(Menu, target)
-}
-
-func (s *MenuState) OnEnter() tea.Cmd { return nil }
-func (s *MenuState) OnExit()          {}
-
-// --- Input State ---
-
-type InputData struct {
-	Title       string
-	Placeholder string
-	Value       string
-	IsGhostFix  bool
-}
-
-type InputState struct {
-	Data InputData
-}
-
-func NewInputState(title, placeholder string, isGhostFix bool) *InputState {
-	return &InputState{
-		Data: InputData{
-			Title:       title,
-			Placeholder: placeholder,
-			IsGhostFix:  isGhostFix,
-		},
-	}
-}
-
-func (s *InputState) ID() StateID { return Input }
-
-func (s *InputState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(Input, target)
-}
-
-func (s *InputState) OnEnter() tea.Cmd { return nil }
-func (s *InputState) OnExit()          {}
 
 // --- Running State ---
 
@@ -157,99 +97,6 @@ func (s *OutputState) CanTransitionTo(target StateID) bool {
 
 func (s *OutputState) OnEnter() tea.Cmd { return nil }
 func (s *OutputState) OnExit()          {}
-
-// --- Wizard States ---
-
-type WizardData struct {
-	Stage         int // 1=Type, 2=Scope, 3=Summary, 4=Preview
-	CommitTypes   []git.CommitType
-	TypeIdx       int
-	Scope         string
-	RecentScopes  []string
-	Summary       string
-	ErrorMsg      string
-	CommitMessage string
-}
-
-// WizardTypeState - Step 1: Select commit type
-type WizardTypeState struct {
-	Data *WizardData
-}
-
-func NewWizardTypeState(types []git.CommitType) *WizardTypeState {
-	return &WizardTypeState{
-		Data: &WizardData{
-			Stage:       1,
-			CommitTypes: types,
-		},
-	}
-}
-
-func (s *WizardTypeState) ID() StateID { return WizardType }
-
-func (s *WizardTypeState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(WizardType, target)
-}
-
-func (s *WizardTypeState) OnEnter() tea.Cmd { return nil }
-func (s *WizardTypeState) OnExit()          {}
-
-// WizardScopeState - Step 2: Enter scope
-type WizardScopeState struct {
-	Data *WizardData
-}
-
-func NewWizardScopeState(data *WizardData) *WizardScopeState {
-	data.Stage = 2
-	return &WizardScopeState{Data: data}
-}
-
-func (s *WizardScopeState) ID() StateID { return WizardScope }
-
-func (s *WizardScopeState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(WizardScope, target)
-}
-
-func (s *WizardScopeState) OnEnter() tea.Cmd { return nil }
-func (s *WizardScopeState) OnExit()          {}
-
-// WizardSummaryState - Step 3: Enter summary
-type WizardSummaryState struct {
-	Data *WizardData
-}
-
-func NewWizardSummaryState(data *WizardData) *WizardSummaryState {
-	data.Stage = 3
-	return &WizardSummaryState{Data: data}
-}
-
-func (s *WizardSummaryState) ID() StateID { return WizardSummary }
-
-func (s *WizardSummaryState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(WizardSummary, target)
-}
-
-func (s *WizardSummaryState) OnEnter() tea.Cmd { return nil }
-func (s *WizardSummaryState) OnExit()          {}
-
-// WizardPreviewState - Step 4: Preview and confirm
-type WizardPreviewState struct {
-	Data *WizardData
-}
-
-func NewWizardPreviewState(data *WizardData) *WizardPreviewState {
-	data.Stage = 4
-	return &WizardPreviewState{Data: data}
-}
-
-func (s *WizardPreviewState) ID() StateID { return WizardPreview }
-
-func (s *WizardPreviewState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(WizardPreview, target)
-}
-
-func (s *WizardPreviewState) OnEnter() tea.Cmd { return nil }
-func (s *WizardPreviewState) OnExit()          {}
 
 // --- Stack State ---
 
@@ -329,24 +176,21 @@ type ConfirmAction string
 
 const (
 	ConfirmMerge ConfirmAction = "merge"
-	ConfirmGhost ConfirmAction = "ghost"
 	ConfirmReset ConfirmAction = "reset"
 )
 
 type ConfirmData struct {
-	Action     ConfirmAction
-	BranchName string // For ghost fix
+	Action ConfirmAction
 }
 
 type ConfirmState struct {
 	Data ConfirmData
 }
 
-func NewConfirmState(action ConfirmAction, branchName string) *ConfirmState {
+func NewConfirmState(action ConfirmAction) *ConfirmState {
 	return &ConfirmState{
 		Data: ConfirmData{
-			Action:     action,
-			BranchName: branchName,
+			Action: action,
 		},
 	}
 }
@@ -384,82 +228,3 @@ func (s *PostCommitState) CanTransitionTo(target StateID) bool {
 
 func (s *PostCommitState) OnEnter() tea.Cmd { return nil }
 func (s *PostCommitState) OnExit()          {}
-
-// --- Reflog State ---
-
-type ReflogData struct {
-	Items  []git.ReflogItem
-	Cursor int
-}
-
-type ReflogState struct {
-	Data ReflogData
-}
-
-func NewReflogState() *ReflogState {
-	return &ReflogState{}
-}
-
-func (s *ReflogState) ID() StateID { return Reflog }
-
-func (s *ReflogState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(Reflog, target)
-}
-
-func (s *ReflogState) OnEnter() tea.Cmd {
-	return git.LoadReflog()
-}
-
-func (s *ReflogState) OnExit() {}
-
-// --- Stash State ---
-
-type StashData struct {
-	Items  []git.StashItem
-	Cursor int
-}
-
-type StashState struct {
-	Data StashData
-}
-
-func NewStashState() *StashState {
-	return &StashState{}
-}
-
-func (s *StashState) ID() StateID { return Stash }
-
-func (s *StashState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(Stash, target)
-}
-
-func (s *StashState) OnEnter() tea.Cmd {
-	return git.LoadStash()
-}
-
-func (s *StashState) OnExit() {}
-
-// --- Vercel State ---
-
-type VercelData struct {
-	Items  []vercel.DeploymentStatus
-	Cursor int
-}
-
-type VercelState struct {
-	Data VercelData
-}
-
-func NewVercelState() *VercelState {
-	return &VercelState{}
-}
-
-func (s *VercelState) ID() StateID { return Vercel }
-
-func (s *VercelState) CanTransitionTo(target StateID) bool {
-	return IsValidTransition(Vercel, target)
-}
-
-func (s *VercelState) OnEnter() tea.Cmd { return nil }
-
-func (s *VercelState) OnExit() {}

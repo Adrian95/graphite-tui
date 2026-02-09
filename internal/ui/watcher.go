@@ -107,10 +107,9 @@ func checkCachedLocalStatus() tea.Msg {
 
 // checkCachedStackStatus returns cached stack status if recent
 func checkCachedStackStatus() tea.Msg {
-	// Cache stack status for 10 seconds (less critical)
 	if statusCache.IsValid && time.Since(statusCache.LastUpdated) < 10*time.Second {
 		return git.StackStatusMsg{
-			HasStack: true, // Simplified - assume if we have cache
+			HasStack: true,
 		}
 	}
 
@@ -120,49 +119,31 @@ func checkCachedStackStatus() tea.Msg {
 // SmartRefresh performs intelligent refreshing based on active panel
 func SmartRefresh(focusIndex int) tea.Cmd {
 	switch focusIndex {
-	case 0: // Speed panel - minimal refresh
-		return tea.Batch(
-			func() tea.Msg { return checkMinimalStatus() },
-		)
-	case 1: // Files panel - full refresh needed
+	case 0: // Files panel - full refresh
 		return tea.Batch(
 			func() tea.Msg { return checkCachedLocalStatus() },
 		)
-	case 2: // Vercel panel - moderate refresh
+	case 1: // Vercel panel - local refresh
 		return tea.Batch(
 			func() tea.Msg { return checkCachedLocalStatus() },
 		)
-	case 3: // Stack panel - full refresh
+	case 2: // Stack panel - full + stack refresh
 		return tea.Batch(
 			func() tea.Msg { return checkCachedLocalStatus() },
 			func() tea.Msg { return checkCachedStackStatus() },
 		)
 	}
-	return RefreshNow() // Fallback
-}
-
-// checkMinimalStatus returns lightweight status for speed panel
-func checkMinimalStatus() tea.Msg {
-	if statusCache.IsValid && time.Since(statusCache.LastUpdated) < 2*time.Second {
-		return git.LocalStatusMsg{
-			Branch:        statusCache.Branch,
-			GtInitialized: true,
-			OnMain:        statusCache.Branch == "main" || statusCache.Branch == "master",
-		}
-	}
-	return git.CheckMinimalStatus()
+	return RefreshNow()
 }
 
 // GetRefreshInterval returns appropriate refresh interval based on focus
 func GetRefreshInterval(focusIndex int) time.Duration {
 	switch focusIndex {
-	case 0: // Speed panel - less frequent
-		return 15 * time.Second
-	case 1: // Files panel - moderate frequency
-		return 8 * time.Second
-	case 2: // Vercel panel - handled separately
+	case 0: // Files panel
+		return 5 * time.Second
+	case 1: // Vercel panel
 		return 10 * time.Second
-	case 3: // Stack panel - moderate frequency
+	case 2: // Stack panel
 		return 10 * time.Second
 	}
 	return 10 * time.Second
